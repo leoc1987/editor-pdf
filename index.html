@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Editor de PDF — DPCI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <strong>📄 Editor de PDF</strong>
+  <span class="sub">DPCI — processamento 100% local (o arquivo nunca sai do seu computador)</span>
+  <span class="spacer"></span>
+  <label class="btn"><input type="file" id="fileOpen" accept="application/pdf" multiple hidden>Abrir PDF</label>
+  <label class="btn"><input type="file" id="fileMerge" accept="application/pdf" multiple hidden>Juntar PDF</label>
+  <button id="btnBlank" title="Adiciona uma página A4 em branco no final">+ Página em branco</button>
+  <span class="sep"></span>
+  <button id="btnExport" class="primary">Exportar PDF</button>
+</header>
+
+<main>
+  <aside id="thumbs" title="Arraste para reordenar"></aside>
+
+  <section id="viewerWrap">
+    <div id="toolbar">
+      Ferramenta:
+      <input type="radio" name="tool" id="toolNone" checked><label for="toolNone">Nenhuma</label>
+      <input type="radio" name="tool" id="toolRedact"><label for="toolRedact">🖍️ Tarja</label>
+      <input type="radio" name="tool" id="toolText"><label for="toolText">🔤 Texto</label>
+      <span class="sep"></span>
+      <label class="chk" title="Rasteriza as páginas que têm tarja, apagando de verdade o texto por baixo">
+        <input type="checkbox" id="chkBurn"> Tarja definitiva (apaga o texto ocultado)
+      </label>
+      <span id="hint"></span>
+    </div>
+
+    <div id="pageArea">
+      <p id="emptyMsg">Abra um PDF para começar.</p>
+      <div id="canvasHolder" hidden>
+        <canvas id="mainCanvas"></canvas>
+        <div id="overlay"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="libs/pdf.min.js"></script>
+<script src="libs/pdf-lib.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
