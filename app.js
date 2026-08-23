@@ -1,4 +1,5 @@
-/* Editor de PDF — DPCI. 100% local: pdf.js (render) + pdf-lib (manipulação). */
+/* Editor de PDF — DPCI. 100% local: pdf.js (render) + pdf-lib (manipulação).
+   Interface no padrão visual PCI/GO (ver DESIGN.md). */
 'use strict';
 
 const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
@@ -18,10 +19,58 @@ const holder = $('#canvasHolder'), canvas = $('#mainCanvas'),
       ctx = canvas.getContext('2d'), overlay = $('#overlay'), hint = $('#hint');
 let view = { scale: 1 }; // viewport atual da página aberta
 
-function toast(msg, ms = 2600) {
-  hint.textContent = msg;
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ---------- toast flutuante (um por vez) ---------- */
+function toast(msg, kind) {
+  document.querySelectorAll('.epdf-toast').forEach(t => t.remove());
+  const el = document.createElement('div');
+  el.className = 'epdf-toast' + (kind === 'warn' ? ' warn' : '');
+  el.setAttribute('role', 'status');
+  el.textContent = msg;
+  document.body.appendChild(el);
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => hint.textContent = '', ms);
+  toast._t = setTimeout(() => el.remove(), kind === 'warn' ? 3500 : 2000);
+}
+
+/* ---------- diálogo próprio (substitui alert/confirm/prompt nativos) ---------- */
+/* modo 'confirm': sem campo, devolve true/false · modo 'prompt' (padrão): devolve texto ou null */
+function appDialog({ title, message = '', placeholder = '', mode = 'prompt', okLabel = 'Confirmar' }) {
+  return new Promise(resolve => {
+    const isConfirm = mode === 'confirm';
+    const bd = document.createElement('div');
+    bd.id = 'epdf-dialog-backdrop';
+    bd.innerHTML = `
+      <div id="epdf-dialog" role="dialog" aria-modal="true" aria-label="${escapeHTML(title)}">
+        <div id="epdf-dialog-title">${escapeHTML(title)}</div>
+        ${message ? `<div id="epdf-dialog-msg">${escapeHTML(message)}</div>` : ''}
+        ${isConfirm ? '' : '<input id="epdf-dialog-input" class="field" placeholder="' + escapeHTML(placeholder) + '">'}
+        <div class="actions">
+          <button type="button" class="btn btn-secondary" data-act="cancel">Cancelar</button>
+          <button type="button" class="btn btn-primary" data-act="ok">${escapeHTML(okLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bd);
+    const input = bd.querySelector('#epdf-dialog-input');
+    const dlg = bd.querySelector('#epdf-dialog');
+
+    function close(result) { bd.remove(); document.removeEventListener('keydown', onKey, true); resolve(result); }
+    function accept() { close(isConfirm ? true : ((input?.value.trim()) || null)); }
+    function onKey(e) {
+      if (e.key === 'Escape') close(false);
+      else if (e.key === 'Enter') { e.preventDefault(); accept(); }
+    }
+    function onClick(e) {
+      if (e.target.closest('[data-act="ok"]')) accept();
+      else if (e.target.closest('[data-act="cancel"]') || e.target === bd) close(false);
+    }
+    document.addEventListener('keydown', onKey, true);
+    dlg.addEventListener('click', onClick);
+    setTimeout(() => (input || dlg.querySelector('[data-act="ok"]')).focus(), 0);
+  });
 }
 
 async function readAsBytes(file) {
@@ -41,7 +90,7 @@ async function addSource(name, bytes) {
 
 async function openFiles(fileList, replace) {
   const files = [...fileList].filter(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-  if (!files.length) return alert('Selecione um arquivo PDF.');
+  if (!files.length) return toast('Selecione um arquivo PDF.', 'warn');
   if (replace) { sources = {}; pages = []; }
   try {
     for (const f of files) {
@@ -52,10 +101,10 @@ async function openFiles(fileList, replace) {
     holder.hidden = false;
     buildThumbs();
     await show(cur);
-    toast(files.length === 1 ? `${files[0].name}: ${pages.length} pág.` : `${files.length} arquivos mesclados.`);
+    toast(files.length === 1 ? `${files[0].name}: ${pages.length} pág.` : `${files.length} arquivos juntados.`);
   } catch (e) {
     console.error(e);
-    alert('Falha ao abrir o PDF: ' + e.message);
+    toast('Não foi possível abrir este arquivo. Ele pode estar danificado.', 'warn');
   }
 }
 
@@ -78,13 +127,14 @@ function makeThumb(p, i) {
 
   if (p.overlays.some(o => o.type === 'rect')) {
     const b = document.createElement('span');
-    b.className = 'badge'; b.title = 'contém tarja';
+    b.className = 'badge'; b.title = 'Esta página tem trecho coberto por tarja';
     b.textContent = 'tarja';
     d.appendChild(b);
   }
 
   const del = document.createElement('button');
-  del.className = 'del'; del.textContent = '✕'; del.title = 'Excluir página';
+  del.className = 'del'; del.textContent = '✕';
+  del.title = 'Excluir página'; del.setAttribute('aria-label', `Excluir página ${i + 1}`);
   del.onclick = ev => { ev.stopPropagation(); deletePage(i); };
   d.appendChild(del);
 
@@ -117,8 +167,14 @@ function refreshThumb(i) {
 }
 
 /* ---------- operações de página ---------- */
-function deletePage(i) {
-  if (!confirm(`Excluir a página ${i + 1}?`)) return;
+async function deletePage(i) {
+  const ok = await appDialog({
+    title: 'Excluir página',
+    message: `A página ${i + 1} será retirada do documento. O arquivo original no seu computador não é alterado.`,
+    mode: 'confirm',
+    okLabel: 'Excluir página'
+  });
+  if (!ok) return;
   pages.splice(i, 1);
   if (!pages.length) { cur = -1; holder.hidden = true; $('#emptyMsg').hidden = false; }
   else if (cur >= pages.length) cur = pages.length - 1;
@@ -194,13 +250,22 @@ function drawOverlay() {
     }
     el.oncontextmenu = ev => {
       ev.preventDefault();
-      if (confirm('Remover este elemento?')) {
-        p.overlays.splice(k, 1);
-        drawOverlay(); refreshThumb(cur);
-      }
+      removeOverlayAt(p, k);
     };
     overlay.appendChild(el);
   }
+}
+
+async function removeOverlayAt(p, k) {
+  const ok = await appDialog({
+    title: 'Remover elemento',
+    message: 'O trecho marcado será retirado do documento.',
+    mode: 'confirm',
+    okLabel: 'Remover'
+  });
+  if (!ok) return;
+  p.overlays.splice(k, 1);
+  drawOverlay(); refreshThumb(cur);
 }
 
 /* ---------- ferramentas ---------- */
@@ -221,13 +286,21 @@ overlay.addEventListener('pointerdown', ev => {
     drag = { type: 'rect', x0: x, y0: y, el: null };
     try { ev.target.setPointerCapture(ev.pointerId); } catch (_) {}
   } else if (tool === 'text') {
-    const txt = prompt('Texto a inserir:');
-    if (txt && txt.trim()) {
-      pages[cur].overlays.push({ type: 'text', x, y, text: txt.trim(), size: 12 });
-      drawOverlay(); refreshThumb(cur);
-    }
+    insertTextAt(x, y);
   }
 });
+
+async function insertTextAt(x, y) {
+  const txt = await appDialog({
+    title: 'Inserir texto',
+    message: 'Escreva o que deve aparecer neste ponto do documento (ex.: um carimbo ou uma correção).',
+    placeholder: 'Texto a inserir'
+  });
+  if (!txt) return;
+  pages[cur].overlays.push({ type: 'text', x, y, text: txt, size: 12 });
+  drawOverlay(); refreshThumb(cur);
+}
+
 overlay.addEventListener('pointermove', ev => {
   if (!drag) return;
   const r = overlay.getBoundingClientRect();
@@ -318,7 +391,7 @@ async function rasterizePage(rec) {
 }
 
 async function exportPdf() {
-  if (!pages.length) return alert('Nenhum documento aberto.');
+  if (!pages.length) return toast('Abra um PDF antes de exportar.', 'warn');
   const burn = $('#chkBurn').checked;
   try {
     toast('Gerando PDF…');
@@ -328,10 +401,10 @@ async function exportPdf() {
     a.download = 'editado.pdf';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-    toast('PDF exportado ✓' + (burn ? ' (tarjas aplicadas em definitivo)' : ''));
+    toast('PDF exportado.' + (burn ? ' As tarjas foram aplicadas em definitivo.' : ''));
   } catch (e) {
     console.error(e);
-    alert('Falha ao gerar o PDF: ' + e.message);
+    toast('Não foi possível gerar o PDF. Tente novamente.', 'warn');
   }
 }
 

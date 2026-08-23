@@ -7,35 +7,49 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-  <strong>📄 Editor de PDF</strong>
-  <span class="sub">DPCI — processamento 100% local (o arquivo nunca sai do seu computador)</span>
+
+<header id="app-header">
+  <div class="logo" aria-hidden="true">DPCI</div>
+  <div class="head-text">
+    <span class="head-title">Editor de PDF</span>
+    <span class="head-sub">Polícia Científica de Goiás — o arquivo nunca sai do seu computador</span>
+  </div>
   <span class="spacer"></span>
-  <label class="btn"><input type="file" id="fileOpen" accept="application/pdf" multiple hidden>Abrir PDF</label>
-  <label class="btn"><input type="file" id="fileMerge" accept="application/pdf" multiple hidden>Juntar PDF</label>
-  <button id="btnBlank" title="Adiciona uma página A4 em branco no final">+ Página em branco</button>
-  <span class="sep"></span>
-  <button id="btnExport" class="primary">Exportar PDF</button>
+
+  <label class="btn" title="Escolha um arquivo PDF do seu computador para editar"
+    ><input type="file" id="fileOpen" accept="application/pdf" multiple hidden>Abrir PDF</label>
+  <label class="btn" title="Adiciona as páginas de outro PDF ao final do documento atual"
+    ><input type="file" id="fileMerge" accept="application/pdf" multiple hidden>Juntar PDF</label>
+  <button id="btnBlank" title="Adiciona uma página A4 em branco no final do documento">+ Página em branco</button>
+
+  <span class="sep-light"></span>
+  <button id="btnExport" class="btn-cta"
+    title="Gera o novo arquivo com todas as edições">Exportar PDF</button>
 </header>
 
 <main>
-  <aside id="thumbs" title="Arraste para reordenar"></aside>
+  <aside id="thumbs" title="Arraste uma página para reordenar"></aside>
 
   <section id="viewerWrap">
     <div id="toolbar">
-      Ferramenta:
-      <input type="radio" name="tool" id="toolNone" checked><label for="toolNone">Nenhuma</label>
-      <input type="radio" name="tool" id="toolRedact"><label for="toolRedact">🖍️ Tarja</label>
-      <input type="radio" name="tool" id="toolText"><label for="toolText">🔤 Texto</label>
+      <span class="tb-label">Ferramenta:</span>
+      <span class="seg-group">
+        <input type="radio" name="tool" id="toolNone" checked><label for="toolNone">Nenhuma</label>
+        <input type="radio" name="tool" id="toolRedact"><label for="toolRedact">Tarja</label>
+      </span>
+      <input type="radio" name="tool" id="toolText"><label for="toolText">Texto</label>
       <span class="sep"></span>
-      <label class="chk" title="Rasteriza as páginas que têm tarja, apagando de verdade o texto por baixo">
+      <label class="chk"
+        title="No arquivo exportado, apaga de verdade o texto que ficou por baixo da tarja">
         <input type="checkbox" id="chkBurn"> Tarja definitiva (apaga o texto ocultado)
       </label>
       <span id="hint"></span>
     </div>
 
     <div id="pageArea">
-      <p id="emptyMsg">Abra um PDF para começar.</p>
+      <p id="emptyMsg"><strong>Abra um PDF para começar.</strong><br>
+        Use “Abrir PDF” no topo da tela. Todo o trabalho acontece neste computador:
+        nada é enviado pela internet.</p>
       <div id="canvasHolder" hidden>
         <canvas id="mainCanvas"></canvas>
         <div id="overlay"></div>
@@ -43,6 +57,12 @@
     </div>
   </section>
 </main>
+
+<footer id="app-footer">
+  <span>Clique e arraste com a ferramenta “Tarja” para cobrir o dado sensível · clique com a ferramenta “Texto” para escrever no documento</span>
+  <span class="spacer"></span>
+  <span>Arraste as miniaturas à esquerda para reordenar as páginas</span>
+</footer>
 
 <script src="libs/pdf.min.js"></script>
 <script src="libs/pdf-lib.min.js"></script>

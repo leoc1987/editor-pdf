@@ -12,20 +12,18 @@ with sync_playwright() as pw:
     page = browser.new_page(viewport={'width': 1280, 'height': 900})
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
-    dialogs = []
-    def on_dialog(d):
-        d.accept('SELO DPCI') if d.type == 'prompt' else d.accept()
-    page.on('dialog', on_dialog)
-
     page.goto(URL)
     page.wait_for_function("typeof PDFLib !== 'undefined'")
     page.set_input_files('#fileOpen', PDF1)
     page.wait_for_selector('.thumb')
 
-    # inserir texto
+    # inserir texto (abre o dialogo proprio da ferramenta Texto)
     page.click('label[for="toolText"]')
     box = page.locator('#overlay').bounding_box()
     page.mouse.click(box['x'] + 60 * 2, box['y'] + 250 * 2)  # pt->px aprox (scale ~2)
+    page.wait_for_selector('#epdf-dialog')
+    page.fill('#epdf-dialog-input', 'SELO DPCI')
+    page.click('#epdf-dialog [data-act="ok"]')
     page.wait_for_timeout(150)
     n_txt = page.locator('#overlay .txt').count()
     print(f'1. texto inserido no overlay: {n_txt}')
@@ -42,9 +40,11 @@ with sync_playwright() as pw:
         page.click('#btnExport')
     dl.value.save_as('/tmp/editado-com-texto.pdf')
 
-    # excluir a pagina em branco (a atual, pagina 2) — confirm auto-aceito
+    # excluir a pagina em branco (a atual, pagina 2) — confirmacao no dialogo proprio
     page.locator('.thumb:nth-child(2)').hover()
     page.locator('.thumb:nth-child(2) .del').click()
+    page.wait_for_selector('#epdf-dialog')
+    page.click('#epdf-dialog [data-act="ok"]')
     page.wait_for_function(f"document.querySelectorAll('.thumb').length === {n0}")
     print('3. pagina excluida: voltou para', page.locator('.thumb').count())
 
