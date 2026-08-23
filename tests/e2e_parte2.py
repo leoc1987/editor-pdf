@@ -28,6 +28,61 @@ with sync_playwright() as pw:
     n_txt = page.locator('#overlay .txt').count()
     print(f'1. texto inserido no overlay: {n_txt}')
     assert n_txt == 1
+    # ao inserir, o texto ja fica selecionado (moldura + alca)
+    assert page.locator('#overlay .txt.sel .hnd').count() == 1, 'texto novo nao veio selecionado'
+
+    # 1b. clicar no texto ja inserido SELECIONA — nao abre outro "Inserir texto"
+    page.keyboard.press('Escape')                             # larga a selecao
+    page.wait_for_timeout(100)
+    assert page.locator('#overlay .txt.sel').count() == 0, 'Esc nao largou a selecao'
+    tb = page.locator('#overlay .txt').bounding_box()
+    page.mouse.click(tb['x'] + tb['width'] / 2, tb['y'] + tb['height'] / 2)
+    page.wait_for_timeout(200)
+    assert page.locator('#epdf-dialog').count() == 0, 'clicar no texto reabriu o dialogo'
+    assert page.locator('#overlay .txt').count() == 1, 'clicar no texto criou outro por cima'
+    assert page.locator('#overlay .txt.sel .hnd').count() == 1, 'faltou a alca de redimensionar'
+    print('1b. clique no texto seleciona (sem duplicar)')
+
+    # 1c. arrastar move o texto
+    o0 = page.evaluate("() => ({...pages[0].overlays[0]})")
+    tb = page.locator('#overlay .txt').bounding_box()
+    page.mouse.move(tb['x'] + tb['width'] / 2, tb['y'] + tb['height'] / 2)
+    page.mouse.down()
+    page.mouse.move(tb['x'] + tb['width'] / 2 + 60, tb['y'] + tb['height'] / 2 + 30, steps=10)
+    page.mouse.up()
+    o1 = page.evaluate("() => ({...pages[0].overlays[0]})")
+    print(f"1c. mover: x {o0['x']:.1f} -> {o1['x']:.1f} | y {o0['y']:.1f} -> {o1['y']:.1f}")
+    assert o1['x'] > o0['x'] + 5 and o1['y'] > o0['y'] + 5, 'o texto nao se moveu'
+
+    # 1d. a alca aumenta o corpo da letra
+    hb = page.locator('#overlay .txt.sel .hnd').bounding_box()
+    page.mouse.move(hb['x'] + hb['width'] / 2, hb['y'] + hb['height'] / 2)
+    page.mouse.down()
+    page.mouse.move(hb['x'] + hb['width'] / 2, hb['y'] + hb['height'] / 2 + 40, steps=10)
+    page.mouse.up()
+    o2 = page.evaluate("() => ({...pages[0].overlays[0]})")
+    print(f"1d. redimensionar: {o1['size']:.1f} -> {o2['size']:.1f} pt")
+    assert o2['size'] > o1['size'] + 2, 'a alca nao aumentou a letra'
+
+    # 1e. Delete apaga o selecionado
+    page.keyboard.press('Delete')
+    page.wait_for_timeout(150)
+    assert page.locator('#overlay .txt').count() == 0, 'Delete nao apagou o texto'
+    print('1e. Delete apagou o texto selecionado')
+
+    # reinsere o texto (o resto do teste valida a gravacao no PDF)
+    page.mouse.click(box['x'] + 60 * 2, box['y'] + 250 * 2)
+    page.wait_for_selector('#epdf-dialog')
+    page.fill('#epdf-dialog-input', 'SELO DPCI')
+    page.click('#epdf-dialog [data-act="ok"]')
+    page.wait_for_selector('#overlay .txt')
+
+    # 1f. duplo clique reabre o texto para edicao (com o valor atual no campo)
+    page.locator('#overlay .txt').dblclick()
+    page.wait_for_selector('#epdf-dialog')
+    assert page.input_value('#epdf-dialog-input') == 'SELO DPCI'
+    page.click('#epdf-dialog [data-act="cancel"]')
+    print('1f. duplo clique abre a edicao com o texto atual')
 
     # adicionar página em branco
     n0 = page.locator('.thumb').count()
@@ -40,13 +95,25 @@ with sync_playwright() as pw:
         page.click('#btnExport')
     dl.value.save_as('/tmp/editado-com-texto.pdf')
 
-    # excluir a pagina em branco (a atual, pagina 2) — confirmacao no dialogo proprio
+    # mais uma pagina em branco: sao duas exclusoes para testar o "nao perguntar"
+    page.click('#btnBlank')
+    page.wait_for_function(f"document.querySelectorAll('.thumb').length === {n0+2}")
+
+    # 3. excluir a pagina 2 marcando "nao perguntar de novo nesta sessao"
     page.locator('.thumb:nth-child(2)').hover()
     page.locator('.thumb:nth-child(2) .del').click()
     page.wait_for_selector('#epdf-dialog')
+    page.check('#epdf-dialog-again-box')
     page.click('#epdf-dialog [data-act="ok"]')
+    page.wait_for_function(f"document.querySelectorAll('.thumb').length === {n0+1}")
+    print('3. pagina excluida com a caixa marcada:', page.locator('.thumb').count())
+
+    # 3b. a proxima exclusao sai direto, sem dialogo
+    page.locator('.thumb:nth-child(2)').hover()
+    page.locator('.thumb:nth-child(2) .del').click()
     page.wait_for_function(f"document.querySelectorAll('.thumb').length === {n0}")
-    print('3. pagina excluida: voltou para', page.locator('.thumb').count())
+    assert page.locator('#epdf-dialog').count() == 0, 'ainda perguntou depois de "nao perguntar"'
+    print('3b. exclusao seguinte sem perguntar: voltou para', page.locator('.thumb').count())
 
     browser.close()
     real = [e for e in errors if 'favicon' not in e]

@@ -5,7 +5,7 @@
 <title>Editor de PDF — DPCI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/png" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=20260823">
+<link rel="stylesheet" href="style.css?v=20260823l">
 </head>
 <body>
 
@@ -13,15 +13,17 @@
   <img class="logo" src="favicon.png" alt="Símbolo da Polícia Científica de Goiás">
   <div class="head-text">
     <span class="head-title">Editor de PDF</span>
-    <span class="head-sub">Polícia Científica de Goiás — o arquivo nunca sai do seu computador</span>
+    <span class="head-sub">Polícia Científica de Goiás</span>
   </div>
   <span class="spacer"></span>
 
   <label class="btn" title="Escolha um arquivo PDF do seu computador para editar"
     ><input type="file" id="fileOpen" accept="application/pdf" multiple hidden>Abrir PDF</label>
-  <label class="btn" title="Adiciona as páginas de outro PDF ao final do documento atual"
-    ><input type="file" id="fileMerge" accept="application/pdf" multiple hidden>Juntar PDF</label>
+  <button id="btnMerge" class="btn"
+    title="Monta a fila de PDFs na ordem que você quiser e junta tudo num documento só">Juntar PDF</button>
+  <input type="file" id="fileMerge" accept="application/pdf" multiple hidden>
   <button id="btnBlank" title="Adiciona uma página A4 em branco no final do documento">+ Página em branco</button>
+  <input type="file" id="fileInsert" accept="application/pdf" multiple hidden>
 
   <span class="sep-light"></span>
   <button id="btnExport" class="btn-cta"
@@ -49,8 +51,7 @@
 
     <div id="pageArea">
       <p id="emptyMsg"><strong>Abra um PDF para começar.</strong><br>
-        Use “Abrir PDF” no topo da tela. Todo o trabalho acontece neste computador:
-        nada é enviado pela internet.</p>
+        Use “Abrir PDF” no topo da tela ou Arraste o documento nesta região.</p>
       <div id="canvasHolder" hidden>
         <canvas id="mainCanvas"></canvas>
         <div id="overlay"></div>
@@ -60,9 +61,16 @@
 </main>
 
 <footer id="app-footer">
-  <span>Clique e arraste com a ferramenta “Tarja” para cobrir o dado sensível · clique com a ferramenta “Texto” para escrever no documento</span>
+  <div class="keys" aria-label="Atalhos de teclado">
+    <span class="ktip"><button type="button" id="btnPrevPage" class="kbtn" title="Página anterior">←</button><button type="button" id="btnNextPage" class="kbtn" title="Próxima página">→</button> ou <kbd>PgUp</kbd><kbd>PgDn</kbd> página anterior / próxima</span>
+    <span class="ktip"><kbd>Home</kbd><kbd>End</kbd> primeira / última</span>
+    <span class="ktip"><kbd>+</kbd><kbd>−</kbd><kbd>0</kbd> zoom</span>
+    <span class="ktip"><kbd>Del</kbd> exclui a tarja / o texto selecionado</span>
+  </div>
   <span class="spacer"></span>
   <div id="viewBar" hidden>
+    <span id="pageInfo" class="vinfo"></span>
+    <span class="sep"></span>
     <button id="btnFitPage" class="vbtn" title="Mostra a página inteira dentro da tela">Página inteira</button>
     <button id="btnFitWidth" class="vbtn" title="Ajusta a página à largura disponível">Largura</button>
     <span class="sep"></span>
@@ -70,11 +78,48 @@
     <button id="btnZoomReset" class="vbtn vnum" title="Voltar o zoom para 100%">100%</button>
     <button id="btnZoomIn" class="vbtn" title="Aumentar o zoom" aria-label="Aumentar o zoom">+</button>
   </div>
-  <span>Arraste as miniaturas à esquerda para reordenar as páginas</span>
 </footer>
+
+<!-- juntar PDFs: fila ordenável — a ordem da lista é a ordem do documento final -->
+<div id="mergeBack" hidden>
+  <section id="mergeBox" role="dialog" aria-modal="true" aria-labelledby="mergeTitle">
+    <header id="mergeHead">
+      <span id="mergeTitle">Juntar PDFs</span>
+      <button id="mergeClose" type="button" aria-label="Fechar sem juntar">✕</button>
+    </header>
+
+    <div id="mergeBody">
+      <p id="mergeInto" class="merge-note" hidden></p>
+
+      <button id="mergeDrop" type="button">
+        <strong id="mergeDropTitulo">Arraste aqui os PDFs para juntar</strong>
+        <span id="mergeDropSub">ou clique para escolher no computador</span>
+      </button>
+
+      <div id="mergeTools" hidden>
+        <input id="mergeSearch" class="field" type="search" autocomplete="off"
+               placeholder="Filtrar pelo nome…" aria-label="Filtrar a lista pelo nome do arquivo">
+        <button id="mergeSort" type="button" class="btn"
+                title="Coloca a lista em ordem alfabética (números contam como número: 2 vem antes de 10)">Ordenar A–Z</button>
+        <span id="mergeCount" class="merge-count"></span>
+      </div>
+
+      <p id="mergeTravado" class="merge-note aviso" hidden>Com o filtro ativo, a ordem não muda à mão — limpe o campo para arrastar ou usar as setas.</p>
+      <ul id="mergeList" aria-label="PDFs na ordem em que serão juntados"></ul>
+      <p id="mergeSemResultado" class="merge-note" hidden>Nenhum arquivo com esse nome.</p>
+    </div>
+
+    <footer id="mergeFoot">
+      <span class="merge-note">O primeiro da lista é o primeiro do documento.</span>
+      <span class="spacer"></span>
+      <button id="mergeCancel" type="button" class="btn">Cancelar</button>
+      <button id="mergeOk" type="button" class="btn btn-primary" disabled>Juntar</button>
+    </footer>
+  </section>
+</div>
 
 <script src="libs/pdf.min.js"></script>
 <script src="libs/pdf-lib.min.js"></script>
-<script src="app.js?v=20260823"></script>
+<script src="app.js?v=20260823l"></script>
 </body>
 </html>
