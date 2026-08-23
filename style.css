@@ -101,9 +101,7 @@ header label.btn { display: inline-flex; align-items: center; }
 .logo {
   width: 34px; height: 34px;
   background: #FFFFFF; border-radius: 6px;
-  display: grid; place-items: center;
-  font-size: 11px; font-weight: 700; letter-spacing: .2px;
-  color: var(--navy);
+  padding: 3px; object-fit: contain;
 }
 .head-text { display: flex; flex-direction: column; }
 .head-title { font-size: 16px; font-weight: 700; color: #FFFFFF; }
