@@ -215,6 +215,7 @@ main { flex: 1; display: flex; min-height: 0; }
 #emptyMsg strong { color: var(--text-2); }
 #canvasHolder {
   position: relative;
+  margin: auto; /* centra nos dois eixos quando cabe; encosta em 0 quando o zoom estoura */
   background: #FFFFFF;
   box-shadow: 0 2px 14px rgba(0, 16, 46, .18);
 }
@@ -250,6 +251,25 @@ main { flex: 1; display: flex; min-height: 0; }
   border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 12px;
+}
+
+/* ---------- barra de visualização do rodapé (página inteira · largura · zoom) ---------- */
+#viewBar { display: flex; align-items: center; gap: 5px; }
+.vbtn {
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: 12px; font-weight: 600;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  background: #FFFFFF; color: var(--text-2);
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.vbtn:hover { background: var(--chip-bg); border-color: var(--navy); }
+.vbtn.active { background: var(--navy); border-color: var(--navy); color: #FFFFFF; }
+.vnum {
+  min-width: 54px; text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- diálogo próprio (no lugar dos alertas nativos) ---------- */

@@ -5,7 +5,7 @@
 <title>Editor de PDF — DPCI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/png" href="favicon.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=20260823">
 </head>
 <body>
 
@@ -62,11 +62,19 @@
 <footer id="app-footer">
   <span>Clique e arraste com a ferramenta “Tarja” para cobrir o dado sensível · clique com a ferramenta “Texto” para escrever no documento</span>
   <span class="spacer"></span>
+  <div id="viewBar" hidden>
+    <button id="btnFitPage" class="vbtn" title="Mostra a página inteira dentro da tela">Página inteira</button>
+    <button id="btnFitWidth" class="vbtn" title="Ajusta a página à largura disponível">Largura</button>
+    <span class="sep"></span>
+    <button id="btnZoomOut" class="vbtn" title="Diminuir o zoom" aria-label="Diminuir o zoom">−</button>
+    <button id="btnZoomReset" class="vbtn vnum" title="Voltar o zoom para 100%">100%</button>
+    <button id="btnZoomIn" class="vbtn" title="Aumentar o zoom" aria-label="Aumentar o zoom">+</button>
+  </div>
   <span>Arraste as miniaturas à esquerda para reordenar as páginas</span>
 </footer>
 
 <script src="libs/pdf.min.js"></script>
 <script src="libs/pdf-lib.min.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=20260823"></script>
 </body>
 </html>

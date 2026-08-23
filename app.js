@@ -99,6 +99,7 @@ async function openFiles(fileList, replace) {
     }
     $('#emptyMsg').hidden = true;
     holder.hidden = false;
+    $('#viewBar').hidden = false;
     buildThumbs();
     await show(cur);
     toast(files.length === 1 ? `${files[0].name}: ${pages.length} pág.` : `${files.length} arquivos juntados.`);
@@ -176,7 +177,7 @@ async function deletePage(i) {
   });
   if (!ok) return;
   pages.splice(i, 1);
-  if (!pages.length) { cur = -1; holder.hidden = true; $('#emptyMsg').hidden = false; }
+  if (!pages.length) { cur = -1; holder.hidden = true; $('#viewBar').hidden = true; $('#emptyMsg').hidden = false; }
   else if (cur >= pages.length) cur = pages.length - 1;
   else if (cur > i) cur--;
   buildThumbs();
@@ -197,26 +198,42 @@ async function addBlankPage() {
   const start = await addSource('em branco', await doc.save());
   cur = pages.length - 1;
   $('#emptyMsg').hidden = true; holder.hidden = false;
+  $('#viewBar').hidden = false;
   buildThumbs();
   show(cur);
   toast('Página em branco adicionada ao final.');
 }
 
 /* ---------- visualizador ---------- */
+const MIN_ZOOM = .25, MAX_ZOOM = 5, ZOOM_STEP = 1.2;
+let fitMode = 'page'; // padrão: página inteira visível ('page' | 'width' | null = zoom manual)
+
+function availSize() {
+  const area = $('#pageArea');
+  return { w: Math.max(80, area.clientWidth - 40), h: Math.max(80, area.clientHeight - 36) };
+}
+
+/* aplica o modo de ajuste atual (largura / página inteira) */
+async function applyFit(pg) {
+  const raw = pg.getViewport({ scale: 1 });
+  const { w, h } = availSize();
+  if (fitMode === 'width') {
+    view.scale = Math.max(MIN_ZOOM, Math.min(w / raw.width, MAX_ZOOM));
+  } else {
+    view.scale = Math.max(MIN_ZOOM, Math.min(w / raw.width, h / raw.height, MAX_ZOOM));
+    $('#pageArea').scrollTop = 0; $('#pageArea').scrollLeft = 0;
+  }
+}
+
 async function show(i) {
   if (i < 0 || i >= pages.length) return;
   cur = i;
   [...$('#thumbs').children].forEach((el, k) => el.classList.toggle('selected', k === cur));
   const p = pages[cur];
   const pg = await sources[p.src].pdfjsDoc.getPage(p.idx + 1);
-
-  // escala inicial: caber na largura disponível
-  const raw = pg.getViewport({ scale: 1 });
-  const availW = $('#pageArea').clientWidth - 40;
-  const fit = Math.max(.25, Math.min(availW / raw.width, 2));
-  view.scale = parseFloat(localStorage.getItem('zoom')) || fit;
-
+  await applyFit(pg);
   await renderMain(pg);
+  syncZoomUI();
 }
 
 async function renderMain(pg) {
@@ -232,6 +249,25 @@ async function renderMain(pg) {
   try { await mainRender.promise; } catch (_) {}
   drawOverlay();
 }
+
+async function setZoom(scale) {
+  if (cur < 0) return;
+  const p = pages[cur];
+  const pg = await sources[p.src].pdfjsDoc.getPage(p.idx + 1);
+  view.scale = Math.max(MIN_ZOOM, Math.min(scale, MAX_ZOOM));
+  fitMode = null; // zoom manual desativa o ajuste automático
+  await renderMain(pg);
+  syncZoomUI();
+}
+
+/* reflete o estado na barra do rodapé */
+function syncZoomUI() {
+  const pct = Math.round(view.scale * 100);
+  $('#btnZoomReset').textContent = pct + '%';
+  $('#btnFitPage').classList.toggle('active', fitMode === 'page');
+  $('#btnFitWidth').classList.toggle('active', fitMode === 'width');
+}
+
 
 /* desenha os elementos sobrepostos da página atual */
 function drawOverlay() {
@@ -413,4 +449,16 @@ $('#fileOpen').onchange = e => openFiles(e.target.files, true) | (e.target.value
 $('#fileMerge').onchange = e => openFiles(e.target.files, false) | (e.target.value = '');
 $('#btnBlank').onclick = addBlankPage;
 $('#btnExport').onclick = exportPdf;
-window.addEventListener('resize', () => { if (cur >= 0) show(cur); });
+
+/* barra de visualização (rodapé) */
+$('#btnFitPage').onclick = () => { if (cur >= 0) { fitMode = 'page'; show(cur); } };
+$('#btnFitWidth').onclick = () => { if (cur >= 0) { fitMode = 'width'; show(cur); } };
+$('#btnZoomIn').onclick = () => setZoom(view.scale * ZOOM_STEP);
+$('#btnZoomOut').onclick = () => setZoom(view.scale / ZOOM_STEP);
+$('#btnZoomReset').onclick = () => setZoom(1);
+
+window.addEventListener('resize', () => {
+  if (cur < 0) return;
+  if (fitMode === null) return; // zoom manual não é alterado pelo redimensionamento
+  show(cur);
+});
