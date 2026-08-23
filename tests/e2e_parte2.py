@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PDF1 = os.path.join(BASE, 'tests', 'teste-pagina1.pdf')
-URL = 'http://127.0.0.1:8093/index.html'
+URL = os.environ.get('EDITOR_URL', 'http://127.0.0.1:8093/index.html')
 
 with sync_playwright() as pw:
     browser = pw.chromium.launch()

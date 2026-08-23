@@ -7,7 +7,7 @@ BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root
 PDF1 = os.path.join(BASE, 'tests', 'teste-pagina1.pdf')
 OUT_BURN = '/tmp/editado-tarja-definitiva.pdf'
 OUT_SOFT = '/tmp/editado-tarja-visual.pdf'
-URL = 'http://127.0.0.1:8093/index.html'
+URL = os.environ.get('EDITOR_URL', 'http://127.0.0.1:8093/index.html')
 
 with sync_playwright() as pw:
     browser = pw.chromium.launch()
