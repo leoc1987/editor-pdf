@@ -1291,6 +1291,53 @@ function goToPage(i) {
   $('#thumbs').children[i]?.scrollIntoView({ block: 'nearest' });
 }
 
+/* ---------- a roda do mouse atravessa as páginas ---------- */
+/* O documento continua sendo uma página por vez no visor. Chegando ao fim da
+   página, continuar rolando passa para a seguinte — e no topo, para a anterior.
+   Em "Página inteira" não há o que rolar, então cada rolagem já vira a página. */
+const BORDA = 2;              // px — folga para o arredondamento do navegador
+const DESCANSO = 350;         // ms de espera após virar: uma rolagem = uma página
+const EMPURRAO = 40;          // px a rolar na borda antes de virar (rolagem livre)
+let ultimaVirada = 0, acumulado = 0;
+
+async function virarPagina(dir) {
+  const alvo = cur + dir;
+  ultimaVirada = performance.now();
+  acumulado = 0;
+  await show(alvo);
+  $('#thumbs').children[alvo]?.scrollIntoView({ block: 'nearest' });
+  // descendo entra pelo topo da página nova; subindo, pelo rodapé — a leitura
+  // continua de onde parou em vez de saltar
+  const el = $('#pageArea');
+  el.scrollTop = dir > 0 ? 0 : Math.max(0, el.scrollHeight - el.clientHeight);
+}
+
+$('#pageArea').addEventListener('wheel', ev => {
+  if (cur < 0 || juntarAberto() || pubAberto()) return;
+  if (ev.ctrlKey || ev.metaKey) return;          // rolar com Ctrl é zoom, não navegação
+  const dy = ev.deltaY;
+  if (!dy) return;
+
+  const el = $('#pageArea');
+  const sobra = el.scrollHeight - el.clientHeight;
+  const rolavel = sobra > BORDA;
+  const naBorda = dy > 0 ? el.scrollTop >= sobra - BORDA : el.scrollTop <= BORDA;
+
+  if (rolavel && !naBorda) { acumulado = 0; return; }   // ainda há página para rolar
+  if (performance.now() - ultimaVirada < DESCANSO) return;
+
+  // numa página que rola, exige um empurrão a mais na borda: senão a mesma
+  // rolagem que chega ao fim já viraria a página
+  if (rolavel) {
+    acumulado += Math.abs(dy);
+    if (acumulado < EMPURRAO) return;
+  }
+  const dir = dy > 0 ? 1 : -1;
+  if (cur + dir < 0 || cur + dir >= pages.length) { acumulado = 0; return; }
+  ev.preventDefault();          // síncrono: segurar a rolagem não pode esperar o render
+  virarPagina(dir);
+}, { passive: false });
+
 document.addEventListener('keydown', ev => {
   if (cur < 0) return;
   // Ctrl/Cmd+A marca tudo que foi inserido na página — o caminho curto para

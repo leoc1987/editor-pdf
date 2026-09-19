@@ -16,6 +16,10 @@ Feito para ocultação de dados sensíveis e organização de documentos na Pol�
   O rodapé da lista mostra o **tamanho final estimado** (soma dos arquivos com o documento aberto);
   depois de exportar, o aviso traz o tamanho real
 - 🔀 **Reordenar** arrastando as miniaturas
+- 🖱️ **Rolar entre as páginas**: a roda do mouse rola a página aberta e, chegando ao fim,
+  passa para a seguinte (no topo, volta para a anterior). Descendo, entra pelo topo da página nova;
+  subindo, pelo rodapé — a leitura continua de onde parou. Em "Página inteira", onde não há o que
+  rolar, cada rolagem já vira a página
 - 🖍️ **Tarja** sobre dados sensíveis, com dois modos:
   - *Tarja normal*: cobertura visual rápida
   - ☑️ *Tarja definitiva* (no momento de exportar): rasteriza a página — o texto ocultado **deixa de existir** no arquivo gerado (nada fica selecionável/copiável)
