@@ -1297,8 +1297,9 @@ function goToPage(i) {
    Em "Página inteira" não há o que rolar, então cada rolagem já vira a página. */
 const BORDA = 2;              // px — folga para o arredondamento do navegador
 const DESCANSO = 350;         // ms de espera após virar: uma rolagem = uma página
-const EMPURRAO = 40;          // px a rolar na borda antes de virar (rolagem livre)
-let ultimaVirada = 0, acumulado = 0;
+const EMPURRAO = 200;         // px a rolar na borda antes de virar (~2 voltas da roda)
+const ESQUECE = 600;          // ms parado na borda: o empurrão recomeça do zero
+let ultimaVirada = 0, acumulado = 0, ultimoNaBorda = 0;
 
 async function virarPagina(dir) {
   const alvo = cur + dir;
@@ -1326,9 +1327,13 @@ $('#pageArea').addEventListener('wheel', ev => {
   if (rolavel && !naBorda) { acumulado = 0; return; }   // ainda há página para rolar
   if (performance.now() - ultimaVirada < DESCANSO) return;
 
-  // numa página que rola, exige um empurrão a mais na borda: senão a mesma
-  // rolagem que chega ao fim já viraria a página
+  // Numa página que rola, exige um empurrão a mais depois de encostar no fim:
+  // senão a mesma rolagem que chega à borda já viraria a página. O empurrão tem
+  // de ser um gesto contínuo — parando na borda, recomeça do zero.
   if (rolavel) {
+    const agora = performance.now();
+    if (agora - ultimoNaBorda > ESQUECE) acumulado = 0;
+    ultimoNaBorda = agora;
     acumulado += Math.abs(dy);
     if (acumulado < EMPURRAO) return;
   }
