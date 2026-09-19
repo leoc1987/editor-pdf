@@ -17,7 +17,7 @@ Feito para ocultação de dados sensíveis e organização de documentos na Pol�
   depois de exportar, o aviso traz o tamanho real
 - 🔀 **Reordenar** arrastando as miniaturas
 - 🖱️ **Rolar entre as páginas**: a roda do mouse rola a página aberta e, chegando ao fim,
-  passa para a seguinte depois de mais **duas voltas da roda** na borda — parando ali, o empurrão
+  passa para a seguinte depois de mais **quatro voltas da roda** na borda — parando ali, o empurrão
   recomeça do zero, então a página não vira sozinha (no topo, volta para a anterior). Descendo, entra pelo topo da página nova;
   subindo, pelo rodapé — a leitura continua de onde parou. Em "Página inteira", onde não há o que
   rolar, cada rolagem já vira a página

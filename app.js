@@ -1297,8 +1297,8 @@ function goToPage(i) {
    Em "Página inteira" não há o que rolar, então cada rolagem já vira a página. */
 const BORDA = 2;              // px — folga para o arredondamento do navegador
 const DESCANSO = 350;         // ms de espera após virar: uma rolagem = uma página
-const EMPURRAO = 200;         // px a rolar na borda antes de virar (~2 voltas da roda)
-const ESQUECE = 600;          // ms parado na borda: o empurrão recomeça do zero
+const EMPURRAO = 400;         // px a rolar na borda antes de virar (~4 voltas da roda)
+const ESQUECE = 1000;         // ms entre voltas: acima disso o empurrão recomeça do zero
 let ultimaVirada = 0, acumulado = 0, ultimoNaBorda = 0;
 
 async function virarPagina(dir) {
