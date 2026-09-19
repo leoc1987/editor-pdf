@@ -346,7 +346,7 @@ async function applyFit(pg) {
 async function show(i) {
   if (i < 0 || i >= pages.length) return;
   cur = i;
-  sel = null;
+  sels.clear();
   [...$('#thumbs').children].forEach((el, k) => el.classList.toggle('selected', k === cur));
   const p = pages[cur];
   const pg = await sources[p.src].pdfjsDoc.getPage(p.idx + 1);
@@ -439,7 +439,8 @@ function syncZoomUI() {
 /* ---------- elementos sobrepostos: selecionar, mover, redimensionar ---------- */
 /* Clicar num elemento já inserido NUNCA cria outro por cima: ele fica
    selecionado, com moldura, alça para redimensionar e ✕ / Del para excluir. */
-let sel = null;                 // índice do overlay selecionado na página aberta
+let sels = new Set();           // índices selecionados na página aberta (pode ser vários)
+let grupoSeq = 0;               // cada gesto de destaque vira um grupo, apagado de uma vez
 const MIN_RECT = 4;             // pt — tarja menor que isso some da vista
 const MIN_FONT = 5, MAX_FONT = 200;
 const LINE_H = 1.15;            // igual ao line-height de #overlay .txt
@@ -448,7 +449,13 @@ const LINE_H = 1.15;            // igual ao line-height de #overlay .txt
 function drawOverlay() {
   overlay.innerHTML = '';
   const p = pages[cur]; if (!p) return;
-  if (sel != null && sel >= p.overlays.length) sel = null;
+  for (const k of [...sels]) if (k >= p.overlays.length) sels.delete(k);
+  // o ✕ aparece uma vez só, no elemento mais acima da seleção; a alça de
+  // redimensionar só faz sentido quando há exatamente um elemento marcado
+  const marcados = [...sels];
+  const dono = marcados.length ? marcados.reduce((a, b) =>
+    (p.overlays[b].y < p.overlays[a].y ||
+     (p.overlays[b].y === p.overlays[a].y && p.overlays[b].x < p.overlays[a].x)) ? b : a) : null;
   const s = view.scale;
   for (let k = 0; k < p.overlays.length; k++) {
     const o = p.overlays[k], el = document.createElement('div');
@@ -464,26 +471,28 @@ function drawOverlay() {
       ev.preventDefault();
       removeOverlayAt(p, k);
     };
-    if (k === sel) {
+    if (sels.has(k)) {
       el.classList.add('sel');
-      decorarSelecionado(el, o);
+      if (k === dono) decorarSelecionado(el, o, marcados.length === 1);
     }
     overlay.appendChild(el);
   }
 }
 
 /* moldura do selecionado: ✕ exclui · alça (canto ↘) redimensiona */
-function decorarSelecionado(el, o) {
+function decorarSelecionado(el, o, comAlca) {
   const del = document.createElement('button');
   del.type = 'button';
   del.className = 'itemDel';
   del.textContent = '✕';
-  del.title = 'Excluir este elemento (tecla Del)';
-  del.setAttribute('aria-label', 'Excluir o elemento selecionado');
+  del.title = comAlca ? 'Excluir este elemento (tecla Del)'
+                      : `Excluir os ${sels.size} trechos selecionados (tecla Del)`;
+  del.setAttribute('aria-label', 'Excluir o que está selecionado');
   del.addEventListener('pointerdown', ev => ev.stopPropagation()); // não inicia arrasto
   del.addEventListener('click', ev => { ev.stopPropagation(); deleteSelected(); });
   el.appendChild(del);
 
+  if (!comAlca) return;            // seleção múltipla: mover sim, redimensionar não
   const alca = document.createElement('div');
   alca.className = 'hnd';
   alca.title = o.type === 'text' ? 'Arraste para mudar o tamanho da letra'
@@ -492,33 +501,86 @@ function decorarSelecionado(el, o) {
   el.appendChild(alca);
 }
 
-function selectOverlay(k) {
-  sel = k;
+/* Um arrasto do Destaque gera um retângulo por linha de texto. Eles formam UM
+   destaque só: selecionar ou excluir qualquer um vale para o conjunto — sem
+   isso, apagar uma marcação de 13 linhas exigiria 13 exclusões. */
+function indicesDoGrupo(p, k) {
+  const g = p?.overlays[k]?.g;
+  if (g == null) return [k];
+  const saida = [];
+  for (let i = 0; i < p.overlays.length; i++) if (p.overlays[i].g === g) saida.push(i);
+  return saida;
+}
+
+/* k = null larga a seleção; somar mantém o que já estava marcado (Shift) */
+function selectOverlay(k, somar) {
+  if (!somar) sels.clear();
+  if (k != null) for (const i of indicesDoGrupo(pages[cur], k)) sels.add(i);
   drawOverlay();
   syncHint();
 }
 
+/* Shift no elemento: entra ou sai da seleção sem desfazer o resto */
+function alternarSelecao(k) {
+  const ix = indicesDoGrupo(pages[cur], k);
+  const dentro = ix.every(i => sels.has(i));
+  for (const i of ix) dentro ? sels.delete(i) : sels.add(i);
+  drawOverlay(); syncHint();
+}
+
+const selUnico = () => sels.size === 1 ? [...sels][0] : null;
+
+/* o que o arrasto vai levar junto: todo elemento selecionado, com seu
+   deslocamento em relação ao ponto onde o ponteiro pegou */
+function itensSelecionados(x, y) {
+  const p = pages[cur];
+  return [...sels].map(k => {
+    const o = p.overlays[k];
+    return { o, el: overlay.querySelector(`[data-k="${k}"]`), dx: x - o.x, dy: y - o.y };
+  });
+}
+
+/* laço: marca tudo que encostar na caixa arrastada */
+function selecionarNaCaixa(b, somar) {
+  const p = pages[cur]; if (!p) return;
+  if (!somar) sels.clear();
+  for (let k = 0; k < p.overlays.length; k++) {
+    const o = p.overlays[k];
+    const larg = o.type === 'text' ? (o.text.length * o.size * .5) : o.w;
+    const alt  = o.type === 'text' ? o.size * LINE_H : o.h;
+    if (o.x < b.x + b.w && o.x + larg > b.x && o.y < b.y + b.h && o.y + alt > b.y) sels.add(k);
+  }
+  drawOverlay(); syncHint();
+  if (sels.size) toast(sels.size === 1 ? '1 trecho selecionado.' : `${sels.size} trechos selecionados. Del exclui todos.`);
+}
+
 /* Del/Backspace e o ✕ excluem na hora; o botão direito continua pedindo confirmação */
 function deleteSelected() {
-  const p = pages[cur]; if (!p || sel == null) return;
-  const o = p.overlays[sel]; if (!o) return;
-  p.overlays.splice(sel, 1);
-  sel = null;
+  const p = pages[cur]; if (!p || !sels.size) return;
+  const ix = [...sels].sort((a, b) => b - a);          // de trás para frente: os índices não deslizam
+  const tipos = new Set(ix.map(k => p.overlays[k].type));
+  for (const k of ix) p.overlays.splice(k, 1);
+  sels.clear();
   drawOverlay(); refreshThumb(cur); syncHint();
-  toast({ rect: 'Tarja excluída.', mark: 'Destaque excluído.', text: 'Texto excluído.' }[o.type]);
+  const um = { rect: 'Tarja excluída.', mark: 'Destaque excluído.', text: 'Texto excluído.' };
+  toast(ix.length === 1 ? um[[...tipos][0]]
+      : tipos.size === 1 && tipos.has('mark') ? `Destaque excluído (${ix.length} linhas).`
+      : `${ix.length} trechos excluídos.`);
 }
 
 async function removeOverlayAt(p, k) {
+  const ix = indicesDoGrupo(p, k);
   const ok = await appDialog({
     title: 'Remover elemento',
-    message: 'O trecho marcado será retirado do documento.',
+    message: ix.length > 1
+      ? `O destaque inteiro — ${ix.length} linhas — será retirado do documento.`
+      : 'O trecho marcado será retirado do documento.',
     mode: 'confirm',
     okLabel: 'Remover'
   });
   if (!ok) return;
-  p.overlays.splice(k, 1);
-  if (sel === k) sel = null;
-  else if (sel != null && sel > k) sel--;
+  for (const i of [...ix].sort((a, b) => b - a)) p.overlays.splice(i, 1);
+  sels.clear();
   drawOverlay(); refreshThumb(cur); syncHint();
 }
 
@@ -580,8 +642,9 @@ function aplicarDestaque(caixa, x0, y0) {
   const clique = !caixa || (caixa.w < 3 && caixa.h < 3);
   const novos = clique ? linhaNoPonto(x0, y0) : destaquesDaCaixa(caixa);
   if (!novos.length) return;
-  for (const n of novos) pages[cur].overlays.push({ type: 'mark', ...n });
-  sel = null;
+  const g = ++grupoSeq;                                // marca o gesto: apaga-se inteiro
+  for (const n of novos) pages[cur].overlays.push({ type: 'mark', g, ...n });
+  sels.clear();
   drawOverlay(); refreshThumb(cur); syncHint();
   toast(novos.length === 1 ? 'Trecho destacado.' : `${novos.length} linhas destacadas.`);
 }
@@ -611,11 +674,15 @@ document.querySelectorAll('#toolbar input[name=tool]').forEach(r =>
 
 /* dica ao lado das ferramentas: explica o que dá para fazer agora */
 function syncHint() {
-  const o = sel != null ? pages[cur]?.overlays[sel] : null;
+  const u = selUnico(), o = u != null ? pages[cur]?.overlays[u] : null;
   if (o) {
     hint.textContent = { rect: 'Tarja selecionada', mark: 'Destaque selecionado',
                          text: 'Texto selecionado (duplo clique edita)' }[o.type] +
       ' · arraste para mover · alça ↘ redimensiona · Del exclui';
+    return;
+  }
+  if (sels.size) {
+    hint.textContent = `${sels.size} trechos selecionados · arraste para mover · Del exclui todos`;
     return;
   }
   hint.textContent = {
@@ -624,7 +691,9 @@ function syncHint() {
       ? 'Arraste sobre o trecho — o amarelo se ajusta às linhas · um clique destaca a linha inteira.'
       : 'Página sem texto (escaneada): arraste a caixa do destaque sobre o trecho.',
     text: 'Clique no ponto onde o texto deve entrar.'
-  }[activeTool()] || '';
+  }[activeTool()] || (pages[cur]?.overlays.length
+    ? 'Arraste um laço sobre vários trechos para selecioná-los · Ctrl+A marca todos · Del exclui.'
+    : '');
 }
 
 /* ---------- gestos sobre o documento ---------- */
@@ -633,23 +702,31 @@ overlay.addEventListener('pointerdown', ev => {
   if (ev.button !== 0) return;                       // o botão direito remove (contextmenu)
   const r = overlay.getBoundingClientRect();
   const x = (ev.clientX - r.left) / view.scale, y = (ev.clientY - r.top) / view.scale;
-  const el = ev.target.closest('.txt, .rect:not(.rubber)');
+  // o destaque também é clicável: sem `.mark` aqui ele só podia ser removido
+  // pelo botão direito, uma linha de cada vez
+  const el = ev.target.closest('.txt, .rect:not(.rubber), .mark:not(.rubber)');
 
   if (el) {
     const k = +el.dataset.k, o = pages[cur].overlays[k];
     if (ev.target.classList.contains('hnd')) {
       drag = { mode: 'size', o, el, x0: x, y0: y, w0: o.w, h0: o.h, size0: o.size };
     } else {
-      if (k !== sel) selectOverlay(k);               // redesenha: o elemento antigo saiu do DOM
-      drag = { mode: 'move', o, el: overlay.querySelector(`[data-k="${k}"]`), dx: x - o.x, dy: y - o.y };
+      if (ev.shiftKey) alternarSelecao(k);           // Shift soma ou tira da seleção
+      else if (!sels.has(k)) selectOverlay(k);       // redesenha: o elemento antigo saiu do DOM
+      drag = { mode: 'move', itens: itensSelecionados(x, y) };
     }
     overlay.setPointerCapture(ev.pointerId);
     ev.preventDefault();                             // não seleciona o texto da página
     return;
   }
 
-  if (sel != null) selectOverlay(null);              // clique fora larga a seleção
-  const tool = activeTool(); if (!tool) return;
+  if (sels.size && !ev.shiftKey) selectOverlay(null); // clique fora larga a seleção
+  const tool = activeTool();
+  if (!tool) {                                       // sem ferramenta: laço de seleção
+    drag = { mode: 'laco', x0: x, y0: y, el: null, somar: ev.shiftKey };
+    overlay.setPointerCapture(ev.pointerId);
+    return;
+  }
   if (tool === 'redact' || tool === 'mark') {
     drag = { mode: 'rect', x0: x, y0: y, el: null, tipo: tool === 'mark' ? 'mark' : 'rect' };
     overlay.setPointerCapture(ev.pointerId);
@@ -666,7 +743,7 @@ async function insertTextAt(x, y) {
   });
   if (!txt) return;
   pages[cur].overlays.push({ type: 'text', x, y, text: txt, size: 12 });
-  sel = pages[cur].overlays.length - 1;              // já entra selecionado, pronto para ajustar
+  sels = new Set([pages[cur].overlays.length - 1]);  // já entra selecionado, pronto para ajustar
   drawOverlay(); refreshThumb(cur); syncHint();
 }
 
@@ -701,11 +778,27 @@ overlay.addEventListener('pointermove', ev => {
   const o = drag.o;
 
   if (drag.mode === 'move') {
-    o.x = Math.max(0, x - drag.dx);
-    o.y = Math.max(0, y - drag.dy);
-    drag.el.style.left = o.x * s + 'px';
-    drag.el.style.top = o.y * s + 'px';
+    for (const it of drag.itens) {
+      it.o.x = Math.max(0, x - it.dx);
+      it.o.y = Math.max(0, y - it.dy);
+      if (!it.el) continue;
+      it.el.style.left = it.o.x * s + 'px';
+      it.el.style.top = it.o.y * s + 'px';
+    }
     drag.mexeu = true;
+    return;
+  }
+
+  if (drag.mode === 'laco') {
+    const nx = Math.min(drag.x0, x), ny = Math.min(drag.y0, y);
+    const w = Math.abs(x - drag.x0), h = Math.abs(y - drag.y0);
+    if (!drag.el) {
+      drag.el = document.createElement('div');
+      drag.el.className = 'laco';
+      overlay.appendChild(drag.el);
+    }
+    drag.el.style.cssText = `left:${nx * s}px;top:${ny * s}px;width:${w * s}px;height:${h * s}px`;
+    drag.box = { x: nx, y: ny, w, h };
     return;
   }
   if (drag.mode === 'size') {
@@ -739,13 +832,19 @@ function endDrag(ev) {
   const d = drag; drag = null;
   try { overlay.releasePointerCapture(ev.pointerId); } catch (_) {}
 
+  if (d.mode === 'laco') {
+    d.el?.remove();
+    if (d.box && (d.box.w > 2 || d.box.h > 2)) selecionarNaCaixa(d.box, d.somar);
+    return;
+  }
+
   if (d.mode === 'rect') {
     const b = d.box;
     d.el?.remove();
     if (d.tipo === 'mark') { aplicarDestaque(b, d.x0, d.y0); return; }
     if (b && b.w > .02 * canvas.width / view.scale / 5 && b.w > 2) { // mínimo visível
       pages[cur].overlays.push({ type: 'rect', ...b });
-      sel = pages[cur].overlays.length - 1;
+      sels = new Set([pages[cur].overlays.length - 1]);
       drawOverlay(); refreshThumb(cur); syncHint();
     }
     return;
@@ -1190,6 +1289,17 @@ function goToPage(i) {
 
 document.addEventListener('keydown', ev => {
   if (cur < 0) return;
+  // Ctrl/Cmd+A marca tudo que foi inserido na página — o caminho curto para
+  // limpar a marcação inteira antes de destacar a publicação seguinte
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'a' || ev.key === 'A')) {
+    const p = pages[cur];
+    if (!p?.overlays.length) return;
+    ev.preventDefault();
+    sels = new Set(p.overlays.map((_, k) => k));
+    drawOverlay(); syncHint();
+    toast(`${sels.size} trechos selecionados. Del exclui todos.`);
+    return;
+  }
   if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
   if ($('#epdf-dialog-backdrop') || $('#epdf-menu-backdrop') || juntarAberto()) return; // diálogo/menu/fila têm prioridade
   const t = ev.target;
@@ -1200,10 +1310,10 @@ document.addEventListener('keydown', ev => {
 
   switch (ev.key) {
     case 'Delete': case 'Backspace':
-      if (sel == null) return;
+      if (!sels.size) return;
       deleteSelected(); break;
     case 'Escape':
-      if (sel == null) return;
+      if (!sels.size) return;
       selectOverlay(null); break;
     case 'ArrowRight': case 'PageDown': goToPage(cur + 1); break;
     case 'ArrowLeft':  case 'PageUp':   goToPage(cur - 1); break;

@@ -25,9 +25,14 @@ Feito para ocultação de dados sensíveis e organização de documentos na Pol�
   O texto por baixo **continua legível e selecionável** no arquivo exportado (ao contrário da tarja, que cobre).
   Em página escaneada, sem texto, a ferramenta vira caixa arrastada
 - 🔤 **Inserir texto** (selos, carimbos, correções)
-- 🖱️ **Ajustar o que já foi inserido**: clique na tarja ou no texto para selecionar — arraste para mover,
+- 🖱️ **Ajustar o que já foi inserido**: clique na tarja, no destaque ou no texto para selecionar — arraste para mover,
   use a alça do canto para redimensionar (no texto, muda o corpo da letra), <kbd>Del</kbd> ou o ✕ exclui.
   No texto, o duplo clique reabre a caixa para corrigir o que está escrito.
+- 🧹 **Apagar em conjunto**: um destaque feito num arrasto é **um só** — clicar em qualquer linha dele
+  seleciona a marcação inteira, e <kbd>Del</kbd> apaga tudo de uma vez.
+  Para limpar vários de uma vez: com a ferramenta em "Nenhuma", **arraste um laço** sobre a região
+  (o que encostar nele entra na seleção), use <kbd>Shift</kbd>+clique para somar ou tirar trechos,
+  ou <kbd>Ctrl</kbd>+<kbd>A</kbd> para marcar tudo o que foi inserido na página.
 
 ## Como usar
 

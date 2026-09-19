@@ -284,6 +284,11 @@ main { flex: 1; display: flex; min-height: 0; }
 /* o ponteiro de mover avisa que um clique pega o elemento — não insere outro */
 #overlay .rect { position: absolute; background: #111; cursor: move; }
 #overlay .rect.rubber { cursor: crosshair; outline: 1px dashed #FFFFFF; }
+/* laço de seleção: é INTERFACE, não conteúdo — nunca entra no PDF exportado */
+#overlay .laco {
+  position: absolute; pointer-events: none;
+  border: 1.5px dashed var(--navy); background: rgba(0, 32, 91, .10);
+}
 /* destaque: multiply reproduz o marca-texto — escurece o fundo e deixa a letra legível */
 #overlay .mark {
   position: absolute; background: #FFEB3B; mix-blend-mode: multiply; cursor: move;
