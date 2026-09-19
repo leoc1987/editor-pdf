@@ -145,6 +145,9 @@ main { flex: 1; display: flex; min-height: 0; }
   font-size: 10.5px; font-weight: 700;
   padding: 1px 7px; border-radius: 8px;
 }
+/* as etiquetas se empilham: uma página pode ter tarja E destaque */
+.thumb .badge + .badge { bottom: 30px; }
+.thumb .badge-mark { background: #FFF3C4; border-color: #E8C34A; color: #6B4E00; }
 .thumb .badge {
   position: absolute; bottom: 8px; left: 8px;
   background: var(--warn-bg);
@@ -263,12 +266,28 @@ main { flex: 1; display: flex; min-height: 0; }
   box-shadow: 0 2px 14px rgba(0, 16, 46, .18);
 }
 #mainCanvas { display: block; }
+
+/* camada de texto invisível do pdf.js. Nunca recebe o ponteiro: serve de régua
+   para o destaque se ajustar às linhas do documento (ver app.js). */
+#textLayer {
+  position: absolute; inset: 0; overflow: hidden;
+  line-height: 1; text-align: initial;
+  pointer-events: none;
+  -webkit-text-size-adjust: none; text-size-adjust: none;
+}
+#textLayer span {
+  position: absolute; white-space: pre; transform-origin: 0 0; color: transparent;
+}
 #overlay { position: absolute; inset: 0; touch-action: none; }
 
 /* elementos sobrepostos (tarja e texto são CONTEÚDO do documento, não interface) */
 /* o ponteiro de mover avisa que um clique pega o elemento — não insere outro */
 #overlay .rect { position: absolute; background: #111; cursor: move; }
 #overlay .rect.rubber { cursor: crosshair; outline: 1px dashed #FFFFFF; }
+/* destaque: multiply reproduz o marca-texto — escurece o fundo e deixa a letra legível */
+#overlay .mark {
+  position: absolute; background: #FFEB3B; mix-blend-mode: multiply; cursor: move;
+}
 #overlay .txt {
   position: absolute; cursor: move; white-space: pre; color: #111;
   font-family: Helvetica, Arial, sans-serif; line-height: 1.15;

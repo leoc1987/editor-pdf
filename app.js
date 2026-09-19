@@ -4,7 +4,7 @@
 
 const pdfjsLib = window['pdfjs-dist/build/pdf'] || window.pdfjsLib;
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
-const { PDFDocument, StandardFonts, rgb } = PDFLib;
+const { PDFDocument, StandardFonts, rgb, BlendMode } = PDFLib;
 
 /* ---------- estado ---------- */
 let sources = {};        // tag -> { name, bytes, pdfjsDoc }
@@ -17,7 +17,8 @@ let tagSeq = 0;
 /* ---------- util ---------- */
 const $ = s => document.querySelector(s);
 const holder = $('#canvasHolder'), canvas = $('#mainCanvas'),
-      ctx = canvas.getContext('2d'), overlay = $('#overlay'), hint = $('#hint');
+      ctx = canvas.getContext('2d'), overlay = $('#overlay'), hint = $('#hint'),
+      textLayer = $('#textLayer');
 let view = { scale: 1 }; // viewport atual da página aberta
 
 const tamanhoLegivel = b => b >= 1048576
@@ -154,10 +155,15 @@ function makeThumb(p, i) {
   num.className = 'num'; num.textContent = i + 1;
   d.appendChild(num);
 
-  if (p.overlays.some(o => o.type === 'rect')) {
+  // a miniatura avisa o que a página já recebeu, sem precisar abri-la
+  for (const [tipo, rotulo, dica] of [
+    ['rect', 'tarja', 'Esta página tem trecho coberto por tarja'],
+    ['mark', 'destaque', 'Esta página tem trecho destacado em amarelo']]) {
+    if (!p.overlays.some(o => o.type === tipo)) continue;
     const b = document.createElement('span');
-    b.className = 'badge'; b.title = 'Esta página tem trecho coberto por tarja';
-    b.textContent = 'tarja';
+    b.className = 'badge badge-' + tipo;
+    b.title = dica;
+    b.textContent = rotulo;
     d.appendChild(b);
   }
 
@@ -380,6 +386,34 @@ async function renderMain(pg) {
   if (meu !== renderSeq) return;
   mainRender = null;
   drawOverlay();
+  montarCamadaTexto(pg, vp, meu);   // em paralelo: o destaque pode esperar o texto
+}
+
+/* Camada de texto do pdf.js: spans transparentes alinhados ao desenho da página.
+   É o que permite SELECIONAR o texto do documento para destacar, em vez de
+   arrastar uma caixa à mão. O pdf.js 3.x dimensiona esses spans por
+   `var(--scale-factor)`, então a variável tem de acompanhar o zoom. */
+async function montarCamadaTexto(pg, vp, meu) {
+  textLayer.innerHTML = '';
+  textLayer.style.setProperty('--scale-factor', view.scale);
+  if (typeof pdfjsLib.renderTextLayer !== 'function') return;  // build sem camada de texto
+  try {
+    const tc = await pg.getTextContent();
+    if (meu !== renderSeq) return;
+    await pdfjsLib.renderTextLayer({ textContentSource: tc, container: textLayer, viewport: vp }).promise;
+    if (meu !== renderSeq) { textLayer.innerHTML = ''; return; }
+    esconderMarcadores();
+    syncHint();        // só agora se sabe se esta página tem texto para ajustar o destaque
+  } catch (_) {
+    textLayer.innerHTML = '';   // sem camada de texto o modo caixa continua valendo
+  }
+}
+
+/* O Diário Oficial embute marcadores invisíveis (<#ABC#…>, branco de 2pt) para
+   delimitar cada matéria. Eles não são conteúdo: fora da seleção do usuário. */
+function esconderMarcadores() {
+  for (const el of textLayer.querySelectorAll('span'))
+    if (el.textContent.includes('<#')) el.style.display = 'none';
 }
 
 async function setZoom(scale) {
@@ -419,8 +453,8 @@ function drawOverlay() {
   for (let k = 0; k < p.overlays.length; k++) {
     const o = p.overlays[k], el = document.createElement('div');
     el.dataset.k = k;
-    if (o.type === 'rect') {
-      el.className = 'rect';
+    if (o.type === 'rect' || o.type === 'mark') {
+      el.className = o.type === 'mark' ? 'mark' : 'rect';
       el.style.cssText += `left:${o.x * s}px;top:${o.y * s}px;width:${o.w * s}px;height:${o.h * s}px`;
     } else {
       el.className = 'txt'; el.textContent = o.text;
@@ -452,8 +486,9 @@ function decorarSelecionado(el, o) {
 
   const alca = document.createElement('div');
   alca.className = 'hnd';
-  alca.title = o.type === 'rect' ? 'Arraste para redimensionar a tarja'
-                                 : 'Arraste para mudar o tamanho da letra';
+  alca.title = o.type === 'text' ? 'Arraste para mudar o tamanho da letra'
+             : o.type === 'mark' ? 'Arraste para redimensionar o destaque'
+                                 : 'Arraste para redimensionar a tarja';
   el.appendChild(alca);
 }
 
@@ -470,7 +505,7 @@ function deleteSelected() {
   p.overlays.splice(sel, 1);
   sel = null;
   drawOverlay(); refreshThumb(cur); syncHint();
-  toast(o.type === 'rect' ? 'Tarja excluída.' : 'Texto excluído.');
+  toast({ rect: 'Tarja excluída.', mark: 'Destaque excluído.', text: 'Texto excluído.' }[o.type]);
 }
 
 async function removeOverlayAt(p, k) {
@@ -490,8 +525,83 @@ async function removeOverlayAt(p, k) {
 /* ---------- ferramentas ---------- */
 function activeTool() {
   if ($('#toolRedact').checked) return 'redact';
+  if ($('#toolMark').checked) return 'mark';
   if ($('#toolText').checked) return 'text';
   return null;
+}
+
+/* No modo Destaque o ponteiro pertence à camada de texto (para selecionar);
+   nas demais ferramentas ele pertence ao overlay (para criar, mover, excluir). */
+const temTexto = () => textLayer.querySelector('span') != null;
+
+/* ---------- destaque ajustado às linhas de texto ---------- */
+/* A camada de texto NÃO serve para selecionar com o mouse: a ordem do DOM que o
+   pdf.js gera não acompanha a ordem de leitura das duas colunas do Diário —
+   arrastar do título de uma portaria até o fim dela selecionava outro bloco da
+   página. Ela é usada como RÉGUA: a caixa arrastada é recortada exatamente nas
+   linhas de texto que ela cobre, e o resultado é o que se vê sendo arrastado. */
+const MIN_DESTAQUE = 2;   // pt — abaixo disso a linha não foi tocada
+
+/* posição de cada linha de texto da página, em pontos do PDF */
+function linhasDeTexto() {
+  const base = holder.getBoundingClientRect(), s = view.scale, saida = [];
+  for (const el of textLayer.querySelectorAll('span')) {
+    if (el.style.display === 'none' || !el.textContent.trim()) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    saida.push({ x: (r.left - base.left) / s, y: (r.top - base.top) / s,
+                 w: r.width / s, h: r.height / s });
+  }
+  return saida;
+}
+
+/* recorta a caixa arrastada nas linhas que ela cobre */
+function destaquesDaCaixa(b) {
+  const linhas = linhasDeTexto();
+  if (!linhas.length) return [{ ...b }];          // página sem texto (escaneada): caixa crua
+  const saida = [];
+  for (const l of linhas) {
+    const meio = l.y + l.h / 2;
+    if (meio < b.y || meio > b.y + b.h) continue; // linha fora da faixa arrastada
+    const x0 = Math.max(l.x, b.x), x1 = Math.min(l.x + l.w, b.x + b.w);
+    if (x1 - x0 >= MIN_DESTAQUE) saida.push({ x: x0, y: l.y, w: x1 - x0, h: l.h });
+  }
+  return juntarEmLinhas(saida);
+}
+
+/* clique sem arrastar destaca a linha inteira sob o ponteiro */
+function linhaNoPonto(x, y) {
+  const l = linhasDeTexto().find(l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h);
+  return l ? [{ ...l }] : [];
+}
+
+function aplicarDestaque(caixa, x0, y0) {
+  if (cur < 0) return;
+  const clique = !caixa || (caixa.w < 3 && caixa.h < 3);
+  const novos = clique ? linhaNoPonto(x0, y0) : destaquesDaCaixa(caixa);
+  if (!novos.length) return;
+  for (const n of novos) pages[cur].overlays.push({ type: 'mark', ...n });
+  sel = null;
+  drawOverlay(); refreshThumb(cur); syncHint();
+  toast(novos.length === 1 ? 'Trecho destacado.' : `${novos.length} linhas destacadas.`);
+}
+
+/* O navegador devolve um retângulo por fragmento de texto. Junta os da MESMA
+   linha num só — sem nunca atravessar a calha entre as duas colunas do Diário:
+   fragmentos separados por um vão largo continuam destaques distintos. */
+function juntarEmLinhas(caixas) {
+  const linhas = [];
+  for (const c of [...caixas].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const vao = l => Math.max(l.h, c.h) * 1.2;
+    const alvo = linhas.find(l =>
+      Math.abs((l.y + l.h / 2) - (c.y + c.h / 2)) < Math.min(l.h, c.h) * .6 &&
+      c.x <= l.x + l.w + vao(l) && c.x + c.w >= l.x - vao(l));
+    if (!alvo) { linhas.push({ ...c }); continue; }
+    const dir = Math.max(alvo.x + alvo.w, c.x + c.w), fim = Math.max(alvo.y + alvo.h, c.y + c.h);
+    alvo.x = Math.min(alvo.x, c.x); alvo.y = Math.min(alvo.y, c.y);
+    alvo.w = dir - alvo.x; alvo.h = fim - alvo.y;
+  }
+  return linhas;
 }
 document.querySelectorAll('#toolbar input[name=tool]').forEach(r =>
   r.onchange = () => {
@@ -503,12 +613,18 @@ document.querySelectorAll('#toolbar input[name=tool]').forEach(r =>
 function syncHint() {
   const o = sel != null ? pages[cur]?.overlays[sel] : null;
   if (o) {
-    hint.textContent = (o.type === 'rect' ? 'Tarja selecionada' : 'Texto selecionado (duplo clique edita)') +
+    hint.textContent = { rect: 'Tarja selecionada', mark: 'Destaque selecionado',
+                         text: 'Texto selecionado (duplo clique edita)' }[o.type] +
       ' · arraste para mover · alça ↘ redimensiona · Del exclui';
     return;
   }
-  hint.textContent = { redact: 'Arraste sobre o trecho que deve ser ocultado.',
-                       text: 'Clique no ponto onde o texto deve entrar.' }[activeTool()] || '';
+  hint.textContent = {
+    redact: 'Arraste sobre o trecho que deve ser ocultado.',
+    mark: temTexto()
+      ? 'Arraste sobre o trecho — o amarelo se ajusta às linhas · um clique destaca a linha inteira.'
+      : 'Página sem texto (escaneada): arraste a caixa do destaque sobre o trecho.',
+    text: 'Clique no ponto onde o texto deve entrar.'
+  }[activeTool()] || '';
 }
 
 /* ---------- gestos sobre o documento ---------- */
@@ -534,8 +650,8 @@ overlay.addEventListener('pointerdown', ev => {
 
   if (sel != null) selectOverlay(null);              // clique fora larga a seleção
   const tool = activeTool(); if (!tool) return;
-  if (tool === 'redact') {
-    drag = { mode: 'rect', x0: x, y0: y, el: null };
+  if (tool === 'redact' || tool === 'mark') {
+    drag = { mode: 'rect', x0: x, y0: y, el: null, tipo: tool === 'mark' ? 'mark' : 'rect' };
     overlay.setPointerCapture(ev.pointerId);
   } else if (tool === 'text') {
     insertTextAt(x, y);
@@ -593,7 +709,7 @@ overlay.addEventListener('pointermove', ev => {
     return;
   }
   if (drag.mode === 'size') {
-    if (o.type === 'rect') {
+    if (o.type === 'rect' || o.type === 'mark') {
       o.w = Math.max(MIN_RECT, drag.w0 + (x - drag.x0));
       o.h = Math.max(MIN_RECT, drag.h0 + (y - drag.y0));
       drag.el.style.width = o.w * s + 'px';
@@ -611,7 +727,7 @@ overlay.addEventListener('pointermove', ev => {
   const w = Math.abs(x - drag.x0), h = Math.abs(y - drag.y0);
   if (!drag.el) {
     drag.el = document.createElement('div');
-    drag.el.className = 'rect rubber';
+    drag.el.className = drag.tipo === 'mark' ? 'mark rubber' : 'rect rubber';
     overlay.appendChild(drag.el);
   }
   drag.el.style.cssText = `left:${nx * s}px;top:${ny * s}px;width:${w * s}px;height:${h * s}px`;
@@ -626,6 +742,7 @@ function endDrag(ev) {
   if (d.mode === 'rect') {
     const b = d.box;
     d.el?.remove();
+    if (d.tipo === 'mark') { aplicarDestaque(b, d.x0, d.y0); return; }
     if (b && b.w > .02 * canvas.width / view.scale / 5 && b.w > 2) { // mínimo visível
       pages[cur].overlays.push({ type: 'rect', ...b });
       sel = pages[cur].overlays.length - 1;
@@ -685,7 +802,10 @@ async function buildOutputPdf(burnRects) {
 
     const helv = helvCache ||= (await out.embedFont(StandardFonts.HelveticaBold));
     for (const o of drawList) {
-      if (o.type === 'rect')
+      if (o.type === 'mark')
+        page.drawRectangle({ x: o.x, y: H - o.y - o.h, width: o.w, height: o.h,
+                             color: rgb(1, .922, .231), blendMode: BlendMode.Multiply });
+      else if (o.type === 'rect')
         page.drawRectangle({ x: o.x, y: H - o.y - o.h, width: o.w, height: o.h, color: rgb(.066, .066, .066) });
       else
         page.drawText(o.text, { x: o.x, y: H - o.y - o.size, size: o.size, font: helv, color: rgb(0, 0, 0) });

@@ -19,6 +19,11 @@ Feito para ocultação de dados sensíveis e organização de documentos na Pol�
 - 🖍️ **Tarja** sobre dados sensíveis, com dois modos:
   - *Tarja normal*: cobertura visual rápida
   - ☑️ *Tarja definitiva* (no momento de exportar): rasteriza a página — o texto ocultado **deixa de existir** no arquivo gerado (nada fica selecionável/copiável)
+- 🖍️ **Destaque** amarelo sobre o texto, no estilo marca-texto. Arraste sobre o trecho:
+  o amarelo **se ajusta sozinho às linhas** do documento, sem precisar acertar a caixa à mão,
+  e nunca atravessa a calha entre as duas colunas. Um clique destaca a linha inteira.
+  O texto por baixo **continua legível e selecionável** no arquivo exportado (ao contrário da tarja, que cobre).
+  Em página escaneada, sem texto, a ferramenta vira caixa arrastada
 - 🔤 **Inserir texto** (selos, carimbos, correções)
 - 🖱️ **Ajustar o que já foi inserido**: clique na tarja ou no texto para selecionar — arraste para mover,
   use a alça do canto para redimensionar (no texto, muda o corpo da letra), <kbd>Del</kbd> ou o ✕ exclui.

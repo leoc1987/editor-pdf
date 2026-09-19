@@ -5,7 +5,7 @@
 <title>Editor de PDF — DPCI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/png" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=20260823l">
+<link rel="stylesheet" href="style.css?v=20260919a">
 </head>
 <body>
 
@@ -37,10 +37,15 @@
     <div id="toolbar">
       <span class="tb-label">Ferramenta:</span>
       <span class="seg-group">
-        <input type="radio" name="tool" id="toolNone" checked><label for="toolNone">Nenhuma</label>
-        <input type="radio" name="tool" id="toolRedact"><label for="toolRedact">Tarja</label>
+        <input type="radio" name="tool" id="toolNone" checked><label for="toolNone"
+          title="Clique para selecionar, mover ou excluir o que já foi inserido">Nenhuma</label>
+        <input type="radio" name="tool" id="toolRedact"><label for="toolRedact"
+          title="Arraste para cobrir um trecho com uma tarja preta">Tarja</label>
+        <input type="radio" name="tool" id="toolMark"><label for="toolMark"
+          title="Passe sobre o texto como num navegador: o destaque amarelo acompanha as linhas do texto">Destaque</label>
+        <input type="radio" name="tool" id="toolText"><label for="toolText"
+          title="Clique no ponto onde o texto deve entrar">Texto</label>
       </span>
-      <input type="radio" name="tool" id="toolText"><label for="toolText">Texto</label>
       <span class="sep"></span>
       <label class="chk"
         title="No arquivo exportado, apaga de verdade o texto que ficou por baixo da tarja">
@@ -54,6 +59,7 @@
         Use “Abrir PDF” no topo da tela ou Arraste o documento nesta região.</p>
       <div id="canvasHolder" hidden>
         <canvas id="mainCanvas"></canvas>
+        <div id="textLayer"></div>
         <div id="overlay"></div>
       </div>
     </div>
@@ -120,6 +126,6 @@
 
 <script src="libs/pdf.min.js"></script>
 <script src="libs/pdf-lib.min.js"></script>
-<script src="app.js?v=20260823l"></script>
+<script src="app.js?v=20260919a"></script>
 </body>
 </html>
