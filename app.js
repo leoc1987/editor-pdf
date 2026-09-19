@@ -855,7 +855,9 @@ overlay.addEventListener('pointerup', endDrag);
 overlay.addEventListener('pointercancel', endDrag);
 
 /* ---------- exportação ---------- */
-async function buildOutputPdf(burnRects) {
+/* `lista` permite exportar um SUBCONJUNTO das páginas, com overlays próprios —
+   é o que a exportação por publicação usa para gerar um arquivo por matéria. */
+async function buildOutputPdf(burnRects, lista = pages) {
   const out = await PDFDocument.create();
   const precisaBurn = rec => burnRects && rec.overlays.some(o => o.type === 'rect');
 
@@ -864,10 +866,11 @@ async function buildOutputPdf(burnRects) {
   // várias páginas entrava uma vez POR PÁGINA e o arquivo saía múltiplas vezes
   // maior que a soma dos originais.
   const porOrigem = {};
-  for (const rec of pages) {
+  for (const rec of lista) {
     if (precisaBurn(rec)) continue;                // vira raster: não é copiada
     (porOrigem[rec.src] ||= []).push(rec.idx);
   }
+  let helv = null;                                 // embutida sob demanda, uma vez por documento
   const copias = {};                               // tag -> Map(idx -> página copiada)
   for (const tag of Object.keys(porOrigem)) {
     const doc = await PDFDocument.load(sources[tag].bytes, { ignoreEncryption: true });
@@ -876,8 +879,8 @@ async function buildOutputPdf(burnRects) {
     copias[tag] = new Map(idxs.map((ix, n) => [ix, feitas[n]]));
   }
 
-  for (let i = 0; i < pages.length; i++) {
-    const rec = pages[i];
+  for (let i = 0; i < lista.length; i++) {
+    const rec = lista[i];
     const needsBurn = precisaBurn(rec);
     let page, W, H;
     // elementos que ainda precisam ser desenhados por cima (tarjas definitivas
@@ -899,7 +902,9 @@ async function buildOutputPdf(burnRects) {
       W = page.getWidth(); H = page.getHeight();
     }
 
-    const helv = helvCache ||= (await out.embedFont(StandardFonts.HelveticaBold));
+    // a fonte pertence a ESTE documento: guardá-la entre exportações faria o
+    // segundo arquivo apontar para um objeto que não existe nele
+    helv ||= await out.embedFont(StandardFonts.HelveticaBold);
     for (const o of drawList) {
       if (o.type === 'mark')
         page.drawRectangle({ x: o.x, y: H - o.y - o.h, width: o.w, height: o.h,
@@ -913,7 +918,6 @@ async function buildOutputPdf(burnRects) {
   // useObjectStreams:false => máxima compatibilidade com visualizadores antigos
   return out.save({ useObjectStreams: false });
 }
-let helvCache = null;
 
 /* renderiza a página via pdf.js em alta resolução e devolve JPEG (bytes) */
 async function rasterizePage(rec) {
@@ -1301,7 +1305,7 @@ document.addEventListener('keydown', ev => {
     return;
   }
   if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-  if ($('#epdf-dialog-backdrop') || $('#epdf-menu-backdrop') || juntarAberto()) return; // diálogo/menu/fila têm prioridade
+  if ($('#epdf-dialog-backdrop') || $('#epdf-menu-backdrop') || juntarAberto() || pubAberto()) return; // diálogo/menu/painel têm prioridade
   const t = ev.target;
   // campos de digitação ficam de fora; rádio/checkbox não (o preventDefault
   // abaixo impede que a seta troque a ferramenta selecionada)
@@ -1332,3 +1336,380 @@ window.addEventListener('resize', () => {
   if (fitMode === null) return; // zoom manual não é alterado pelo redimensionamento
   show(cur);
 });
+
+/* ==========================================================================
+   PUBLICAÇÕES DA POLÍCIA CIENTÍFICA NO DIÁRIO OFICIAL
+   --------------------------------------------------------------------------
+   O Diário Oficial de Goiás traz duas estruturas que permitem achar as nossas
+   publicações sem depender de procurar texto solto:
+
+   1. BARRA AMARELA (#FFCC00, largura de coluna) abre a seção de cada órgão. O
+      texto dentro dela é o nome do órgão. A barra SEGUINTE, na ordem de leitura,
+      fecha a seção anterior — é um limite exato, não um palpite. Procurar a
+      seção pela barra, e não pelo texto, ignora por construção as menções a
+      "Diretoria da Polícia Científica" no corpo de publicações da SSP.
+
+   2. MARCADORES INVISÍVEIS delimitam cada matéria: texto branco de 2pt na forma
+      <#ABC#652905#22#745443> (abre) e <#ABC#652905#23#745443/> (fecha). Eles
+      acompanham a matéria ATRAVESSANDO colunas e páginas, o que resolve o caso
+      de uma portaria começar numa página e terminar na outra.
+
+   Se um dia o Diário mudar de layout nada quebra: a detecção não acha nada e o
+   destaque manual continua valendo.
+   ========================================================================== */
+
+const BARRA_RGB = [255, 204, 0];          // #FFCC00 — a barra de seção do Diário
+const COLUNA_MEIO = 300;                  // pt — calha entre as duas colunas A4
+const ASC = .8;                           // topo da linha = base − ASC × altura (aferido: erro < .2pt)
+const RX_MARCA = /<#ABC#(\d+)#(\d+)#\d+(\/)?>/;
+const RX_DOE   = /DI[ÁA]RIO\s+OFICIAL\/GO\s+N[°ºo]\s*([\d.]+)/i;
+const RX_ORGAO = /Pol[íi]cia\s+Cient[íi]fica/i;
+/* últimas linhas do cabeçalho e primeira do rodapé — servem de limite do corpo */
+const RX_CABECALHO = /DI[ÁA]RIO\s+OFICIAL\/GO\s+N[°ºo]|^ANO\s+\d+\s*-/i;
+const RX_RODAPE = /DIARIO\s+OFICIAL\s+DO\s+ESTADO\s+DE\s+GOIAS|CODIGO\s+DE\s+AUTENTICACAO/i;
+/* o Diário encerra cada matéria com este rótulo, e ele é a fronteira mais
+   confiável quando o layout foge das duas colunas (tabelas ocupando a largura
+   inteira, por exemplo, quebram a ordem coluna-a-coluna) */
+const RX_PROTOCOLO = /^Protocolo\s+(\d+)\s*$/i;
+/* "PORTARIA DPCI Nº 250 - DGDP, DE 12 DE..." -> tipo, número, sigla */
+const RX_TITULO = /^([A-ZÇÃÁÉÍÓÚÂÊÔÕ][A-ZÇÃÁÉÍÓÚÂÊÔÕ\s]{3,60}?)\s+(?:DPCI\s+)?N[ºo°]\s*([\dA-Za-z./-]+?)\s*(?:-\s*([A-ZÇ]{2,12}))?\s*,\s*DE\s/i;
+
+const coluna = x => x < COLUNA_MEIO ? 0 : 1;
+/* ordem de leitura do Diário: página, depois coluna, depois altura */
+const antes = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+
+/* matriz 3x2 do PDF: composição e aplicação a um ponto */
+const mtxMul = (a, b) => [a[0]*b[0] + a[2]*b[1], a[1]*b[0] + a[3]*b[1],
+                          a[0]*b[2] + a[2]*b[3], a[1]*b[2] + a[3]*b[3],
+                          a[0]*b[4] + a[2]*b[5] + a[4], a[1]*b[4] + a[3]*b[5] + a[5]];
+const mtxApl = (m, x, y) => [m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5]];
+
+/* retângulos amarelos da página, já em coordenadas de tela (origem no topo) */
+async function barrasDaPagina(pg, H) {
+  const ol = await pg.getOperatorList(), OPS = pdfjsLib.OPS;
+  let ctm = [1, 0, 0, 1, 0, 0], pilha = [], cor = null;
+  const saida = [];
+  for (let k = 0; k < ol.fnArray.length; k++) {
+    const fn = ol.fnArray[k], a = ol.argsArray[k];
+    if (fn === OPS.save) pilha.push([...ctm]);
+    else if (fn === OPS.restore) ctm = pilha.pop() || [1, 0, 0, 1, 0, 0];
+    else if (fn === OPS.transform) ctm = mtxMul(ctm, a);
+    else if (fn === OPS.setFillRGBColor) cor = a;
+    else if (fn === OPS.constructPath && cor &&
+             Math.abs(cor[0] - BARRA_RGB[0]) < 24 &&
+             Math.abs(cor[1] - BARRA_RGB[1]) < 24 &&
+             Math.abs(cor[2] - BARRA_RGB[2]) < 24) {
+      const [ops, args] = a;
+      let j = 0;
+      for (const op of ops) {
+        if (op !== OPS.rectangle) { j += passoDoPath()[op] ?? 0; continue; }
+        const [x, y, w, h] = args.slice(j, j + 4); j += 4;
+        const p1 = mtxApl(ctm, x, y), p2 = mtxApl(ctm, x + w, y + h);
+        saida.push({ x: Math.min(p1[0], p2[0]), w: Math.abs(p2[0] - p1[0]),
+                     y: H - Math.max(p1[1], p2[1]), h: Math.abs(p2[1] - p1[1]) });
+      }
+    }
+  }
+  return saida.filter(r => r.w > 50 && r.h > 8);   // barra de seção, não filete
+}
+/* Quantos números cada comando consome na lista de constructPath. Os códigos
+   vêm do próprio pdf.js — fixá-los à mão quebraria numa troca de versão. */
+let passoCache = null;
+function passoDoPath() {
+  if (passoCache) return passoCache;
+  const O = pdfjsLib.OPS;
+  return passoCache = {
+    [O.moveTo]: 2, [O.lineTo]: 2, [O.curveTo]: 6, [O.curveTo2]: 4,
+    [O.curveTo3]: 4, [O.closePath]: 0, [O.rectangle]: 4
+  };
+}
+
+/* Varre o documento inteiro uma vez: número da edição, barras de seção,
+   marcadores de matéria e a geometria de cada linha de texto. */
+async function varrerDiario() {
+  const barras = [], marcas = [], linhas = [];
+  let doe = null;
+  for (let i = 0; i < pages.length; i++) {
+    const pg = await sources[pages[i].src].pdfjsDoc.getPage(pages[i].idx + 1);
+    const H = pg.getViewport({ scale: 1 }).height;
+
+    for (const b of await barrasDaPagina(pg, H))
+      barras.push({ pos: [i, coluna(b.x), b.y], pag: i, cx: b });
+
+    const tc = await pg.getTextContent();
+    for (const it of tc.items) {
+      const t = (it.str || '').trim();
+      if (!t) continue;
+      const x = it.transform[4], base = H - it.transform[5];
+      const pos = [i, coluna(x), base];
+      const m = RX_MARCA.exec(t);
+      if (m) { marcas.push({ pos, pag: i, id: m[1], fecha: !!m[3] }); continue; }
+      if (!doe) { const g = RX_DOE.exec(t); if (g) doe = g[1].replace(/\./g, ''); }
+      // largura 0 = fonte vetorial do cabeçalho (o logo "Diário Oficial")
+      if (it.width > 0)
+        linhas.push({ pos, pag: i, t, cx: { x, y: base - it.height * ASC, w: it.width, h: it.height } });
+    }
+  }
+  barras.sort((a, b) => antes(a.pos, b.pos));
+  marcas.sort((a, b) => antes(a.pos, b.pos));
+  linhas.sort((a, b) => antes(a.pos, b.pos));
+  return { doe, barras, marcas, linhas: semCabecalhoNemRodape(linhas) };
+}
+
+/* O número da página e a tarja do cabeçalho ficam na coluna da direita, no alto:
+   pela ordem de leitura eles caem DENTRO do intervalo de uma matéria que segue
+   da coluna esquerda para a direita, e entravam no destaque. O próprio Diário
+   marca esses limites — a linha "ANO 190 - DIÁRIO OFICIAL/GO N° …" fecha o
+   cabeçalho e a linha "DIARIO OFICIAL DO ESTADO DE GOIAS …" abre o rodapé. */
+function semCabecalhoNemRodape(linhas) {
+  const topo = {}, base = {};
+  for (const l of linhas) {
+    if (RX_CABECALHO.test(l.t)) topo[l.pag] = Math.max(topo[l.pag] ?? 0, l.pos[2]);
+    if (RX_RODAPE.test(l.t))    base[l.pag] = Math.min(base[l.pag] ?? 1e9, l.pos[2]);
+  }
+  return linhas.filter(l => {
+    const t = topo[l.pag] ?? 50;                 // sem cabeçalho reconhecido: margem padrão A4
+    const b = base[l.pag] ?? 1e9;
+    return l.pos[2] > t + 2 && l.pos[2] < b - 2;
+  });
+}
+
+const maiusculasParaTitulo = s => s.toLowerCase().split(/\s+/)
+  .map(p => /^(de|da|do|das|dos|e)$/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1))
+  .join(' ');
+
+/* nome do arquivo a partir do título da matéria, no padrão pedido:
+   "PORTARIA DPCI Nº 250 - DGDP, DE …"  ->  "DOE 24867 - Portaria 250 - DGDP" */
+function nomeDaPublicacao(doe, titulo) {
+  const g = RX_TITULO.exec(titulo || '');
+  const prefixo = doe ? `DOE ${doe} - ` : '';
+  if (!g) return prefixo + (titulo || 'Publicação').slice(0, 60).trim();
+  return prefixo + maiusculasParaTitulo(g[1]) + ' ' + g[2] + (g[3] ? ' - ' + g[3].toUpperCase() : '');
+}
+
+/* Resultado: seção da DPCI (início, fim e páginas) + uma entrada por matéria,
+   com as linhas a destacar já calculadas. */
+async function detectarPublicacoes() {
+  const { doe, barras, marcas, linhas } = await varrerDiario();
+  const k = barras.findIndex(b => {
+    const dentro = linhas.filter(l => l.pag === b.pag &&
+      l.pos[2] >= b.cx.y && l.pos[2] <= b.cx.y + b.cx.h + 4 &&
+      l.cx.x >= b.cx.x - 4 && l.cx.x <= b.cx.x + b.cx.w);
+    return RX_ORGAO.test(dentro.map(l => l.t).join(' '));
+  });
+  if (k < 0) return { doe, secao: null, publicacoes: [] };
+
+  const ini = barras[k].pos;
+  const fim = barras[k + 1] ? barras[k + 1].pos : [1e9, 9, 9];
+
+  const publicacoes = [], abertas = new Map();
+  for (const m of marcas) {
+    if (!m.fecha) { abertas.set(m.id, m); continue; }
+    const a = abertas.get(m.id);
+    if (!a) continue;
+    abertas.delete(m.id);
+    if (antes(a.pos, ini) < 0 || antes(a.pos, fim) >= 0) continue;   // fora da nossa seção
+
+    let dentro = linhas.filter(l => antes(l.pos, a.pos) > 0 && antes(l.pos, m.pos) < 0);
+    // Uma tabela de largura inteira pertence à matéria anterior, mas pela ordem
+    // coluna-a-coluna cai dentro desta janela. O rótulo "Protocolo <id>" de
+    // OUTRA matéria, encontrado aqui dentro, marca onde aquela terminou: tudo
+    // até ele é dela.
+    // O corte vale só DENTRO DA MESMA COLUNA: pela ordem de leitura a coluna
+    // esquerda inteira vem antes da direita, e cortar por ela derrubaria o
+    // começo da própria matéria.
+    const cortes = [];
+    for (const l of dentro) {
+      const g = RX_PROTOCOLO.exec(l.t);
+      if (g && g[1] !== m.id) cortes.push(l.pos);
+    }
+    if (cortes.length)
+      dentro = dentro.filter(l => !cortes.some(c =>
+        l.pos[0] === c[0] && l.pos[1] === c[1] && l.pos[2] <= c[2]));
+    dentro = dentro.filter(l => !RX_PROTOCOLO.test(l.t));   // o rótulo não é conteúdo
+    if (!dentro.length) continue;
+    const titulo = dentro.find(l => l.t.length > 12)?.t || '';
+    publicacoes.push({
+      id: m.id,
+      nome: nomeDaPublicacao(doe, titulo),
+      titulo,
+      pag0: a.pag, pag1: m.pag,
+      caixas: dentro.map(l => ({ pag: l.pag, ...l.cx })),
+      marcada: true
+    });
+  }
+  const paginas = publicacoes.length
+    ? { de: Math.min(...publicacoes.map(p => p.pag0)), ate: Math.max(...publicacoes.map(p => p.pag1)) }
+    : { de: ini[0], ate: fim[0] === 1e9 ? pages.length - 1 : fim[0] };
+  return { doe, secao: { ini, fim, ...paginas }, publicacoes };
+}
+
+/* ---------- painel de publicações ---------- */
+let pubs = [], pubDoe = null;
+const pubBack = $('#pubBack');
+const pubAberto = () => !pubBack.hidden;
+
+async function pubAbrir() {
+  if (!pages.length) return toast('Abra o Diário Oficial antes.', 'warn');
+  toast('Procurando as publicações…');
+  let res;
+  try { res = await detectarPublicacoes(); }
+  catch (e) { console.error(e); return toast('Não foi possível ler a estrutura deste PDF.', 'warn'); }
+
+  pubDoe = res.doe;
+  pubs = res.publicacoes;
+  pubBack.hidden = false;
+
+  const aviso = $('#pubAviso');
+  if (!res.secao) {
+    aviso.hidden = false;
+    aviso.textContent = 'Não encontrei a seção da Polícia Científica neste arquivo. ' +
+      'Ou a edição não traz publicação nossa no dia, ou o Diário mudou de formato — ' +
+      'o destaque manual continua disponível.';
+  } else if (!pubs.length) {
+    aviso.hidden = false;
+    aviso.textContent = 'A seção existe, mas não consegui separar as matérias uma a uma. ' +
+      'Use o destaque manual nesta edição.';
+  } else {
+    aviso.hidden = true;
+  }
+
+  $('#pubResumo').textContent = res.secao
+    ? `Edição ${res.doe || '—'} · seção da Polícia Científica nas páginas ` +
+      `${res.secao.de + 1} a ${res.secao.ate + 1} · ${pubs.length} ` +
+      (pubs.length === 1 ? 'publicação encontrada' : 'publicações encontradas')
+    : `Edição ${res.doe || '—'} · nada encontrado`;
+
+  const corte = $('#pubCorte');
+  corte.hidden = !res.secao;
+  if (res.secao) {
+    $('#pubDe').value = res.secao.de + 1;
+    $('#pubAte').value = res.secao.ate + 1;
+    $('#pubDe').max = $('#pubAte').max = pages.length;
+  }
+  pubRender();
+}
+
+function pubRender() {
+  const ul = $('#pubLista');
+  ul.innerHTML = '';
+  pubs.forEach((p, i) => {
+    const li = document.createElement('li');
+    li.classList.toggle('fora', !p.marcada);
+
+    const chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.checked = p.marcada;
+    chk.setAttribute('aria-label', `Incluir ${p.nome} na exportação`);
+    chk.onchange = () => { p.marcada = chk.checked; pubRender(); };
+    li.appendChild(chk);
+
+    const nome = document.createElement('input');
+    nome.type = 'text'; nome.className = 'pub-nome'; nome.value = p.nome;
+    nome.setAttribute('aria-label', 'Nome do arquivo');
+    nome.oninput = () => { p.nome = nome.value; pubSyncOk(); };
+    li.appendChild(nome);
+
+    const pag = document.createElement('button');
+    pag.type = 'button'; pag.className = 'pub-pag';
+    pag.textContent = p.pag0 === p.pag1 ? `pág. ${p.pag0 + 1}` : `pág. ${p.pag0 + 1}–${p.pag1 + 1}`;
+    pag.title = 'Ir para esta página no documento';
+    pag.onclick = () => { pubFechar(); goToPage(p.pag0); };
+    li.appendChild(pag);
+
+    ul.appendChild(li);
+  });
+  pubSyncOk();
+}
+
+function pubSyncOk() {
+  const n = pubs.filter(p => p.marcada && p.nome.trim()).length;
+  $('#pubOk').disabled = !n;
+  $('#pubOk').textContent = n ? `Exportar ${n} ${n === 1 ? 'arquivo' : 'arquivos'}` : 'Exportar';
+}
+
+function pubFechar() { pubBack.hidden = true; }
+
+/* corte de páginas: conservador — o usuário confere o intervalo antes */
+async function pubCortar() {
+  const de = parseInt($('#pubDe').value, 10) - 1, ate = parseInt($('#pubAte').value, 10) - 1;
+  if (isNaN(de) || isNaN(ate) || de < 0 || ate >= pages.length || de > ate)
+    return toast('Intervalo de páginas inválido.', 'warn');
+  const fora = pages.length - (ate - de + 1);
+  if (!fora) return toast('Não há páginas fora do intervalo.');
+  const ok = await appDialog({
+    title: 'Excluir as demais páginas',
+    message: `Ficam as páginas ${de + 1} a ${ate + 1}. As outras ${fora} serão retiradas ` +
+             'do documento. O arquivo original no seu computador não é alterado.',
+    mode: 'confirm',
+    okLabel: `Excluir ${fora} ${fora === 1 ? 'página' : 'páginas'}`
+  });
+  if (!ok) return;
+
+  pages = pages.slice(de, ate + 1);
+  for (const p of pubs) { p.pag0 -= de; p.pag1 -= de; for (const c of p.caixas) c.pag -= de; }
+  cur = 0; sels.clear();
+  buildThumbs(); show(0);
+  $('#pubDe').value = 1; $('#pubAte').value = pages.length;
+  $('#pubDe').max = $('#pubAte').max = pages.length;
+  $('#pubResumo').textContent = `Edição ${pubDoe || '—'} · ${pages.length} ` +
+    (pages.length === 1 ? 'página mantida' : 'páginas mantidas') + ` · ${pubs.length} publicações`;
+  pubRender();
+  toast(`${fora} ${fora === 1 ? 'página excluída' : 'páginas excluídas'}.`);
+}
+
+/* Exportação em lote: um arquivo por publicação, cada um com APENAS aquela
+   publicação destacada. É o que substitui o ciclo manual de destacar, salvar,
+   apagar o destaque, destacar a seguinte, salvar de novo. */
+async function pubExportar() {
+  const escolhidas = pubs.filter(p => p.marcada && p.nome.trim());
+  if (!escolhidas.length) return;
+  const soPagina = $('#pubSoPagina').checked;
+  const burn = $('#chkBurn').checked;
+
+  $('#pubOk').disabled = true;
+  try {
+    for (let n = 0; n < escolhidas.length; n++) {
+      const p = escolhidas[n];
+      toast(`Gerando ${n + 1} de ${escolhidas.length}: ${p.nome}…`);
+
+      const quais = soPagina
+        ? pages.map((_, i) => i).filter(i => i >= p.pag0 && i <= p.pag1)
+        : pages.map((_, i) => i);
+      // cada página leva o que já estava nela (tarjas, textos) MENOS os
+      // destaques de outras publicações, MAIS o desta
+      const lista = quais.map(i => ({
+        ...pages[i],
+        overlays: [
+          ...pages[i].overlays.filter(o => o.type !== 'mark' || o.pub == null),
+          ...juntarEmLinhas(p.caixas.filter(c => c.pag === i))
+            .map(c => ({ type: 'mark', pub: p.id, ...c }))
+        ]
+      }));
+
+      const bytes = await buildOutputPdf(burn, lista);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+      a.download = nomeSeguro(p.nome) + '.pdf';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 20000);
+      await new Promise(r => setTimeout(r, 350));   // o navegador engasga com downloads em rajada
+    }
+    toast(`${escolhidas.length} ${escolhidas.length === 1 ? 'arquivo gerado' : 'arquivos gerados'}.`);
+    pubFechar();
+  } catch (e) {
+    console.error(e);
+    toast('Não foi possível gerar os arquivos. Tente novamente.', 'warn');
+  } finally {
+    pubSyncOk();
+  }
+}
+
+/* nome de arquivo aceito por Windows, macOS e Linux */
+const nomeSeguro = s => s.trim().replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').slice(0, 120);
+
+$('#btnPub').onclick = pubAbrir;
+$('#pubClose').onclick = pubFechar;
+$('#pubCancel').onclick = pubFechar;
+$('#pubCortar').onclick = pubCortar;
+$('#pubOk').onclick = pubExportar;
+pubBack.addEventListener('pointerdown', ev => { if (ev.target === pubBack) pubFechar(); });

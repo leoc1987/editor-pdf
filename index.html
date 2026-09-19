@@ -5,7 +5,7 @@
 <title>Editor de PDF — DPCI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" type="image/png" href="favicon.png">
-<link rel="stylesheet" href="style.css?v=20260919a">
+<link rel="stylesheet" href="style.css?v=20260919b">
 </head>
 <body>
 
@@ -21,6 +21,8 @@
     ><input type="file" id="fileOpen" accept="application/pdf" multiple hidden>Abrir PDF</label>
   <button id="btnMerge" class="btn"
     title="Monta a fila de PDFs na ordem que você quiser e junta tudo num documento só">Juntar PDF</button>
+  <button id="btnPub" class="btn"
+    title="Localiza as publicações da Polícia Científica no Diário Oficial e gera um arquivo por publicação">Publicações</button>
   <input type="file" id="fileMerge" accept="application/pdf" multiple hidden>
   <button id="btnBlank" title="Adiciona uma página A4 em branco no final do documento">+ Página em branco</button>
   <input type="file" id="fileInsert" accept="application/pdf" multiple hidden>
@@ -87,6 +89,40 @@
   </div>
 </footer>
 
+<!-- publicações da DPCI: uma linha por matéria, com nome editável -->
+<div id="pubBack" hidden>
+  <section id="pubBox" role="dialog" aria-modal="true" aria-labelledby="pubTitle">
+    <header id="pubHead">
+      <span id="pubTitle">Publicações da Polícia Científica</span>
+      <button id="pubClose" type="button" aria-label="Fechar o painel">✕</button>
+    </header>
+
+    <div id="pubBody">
+      <p id="pubResumo" class="merge-note"></p>
+      <p id="pubAviso" class="merge-note aviso" hidden></p>
+
+      <div id="pubCorte" class="pub-corte" hidden>
+        <span>Manter apenas as páginas</span>
+        <input id="pubDe" class="field num" type="number" min="1" step="1" aria-label="Primeira página a manter">
+        <span>até</span>
+        <input id="pubAte" class="field num" type="number" min="1" step="1" aria-label="Última página a manter">
+        <button id="pubCortar" type="button" class="btn">Excluir as demais</button>
+      </div>
+
+      <ul id="pubLista" aria-label="Publicações encontradas"></ul>
+    </div>
+
+    <footer id="pubFoot">
+      <label class="chk" title="Desmarcado, cada arquivo sai com todas as páginas do documento aberto">
+        <input type="checkbox" id="pubSoPagina" checked> Cada arquivo leva só a página da sua publicação
+      </label>
+      <span class="spacer"></span>
+      <button id="pubCancel" type="button" class="btn">Fechar</button>
+      <button id="pubOk" type="button" class="btn btn-primary" disabled>Exportar</button>
+    </footer>
+  </section>
+</div>
+
 <!-- juntar PDFs: fila ordenável — a ordem da lista é a ordem do documento final -->
 <div id="mergeBack" hidden>
   <section id="mergeBox" role="dialog" aria-modal="true" aria-labelledby="mergeTitle">
@@ -127,6 +163,6 @@
 
 <script src="libs/pdf.min.js"></script>
 <script src="libs/pdf-lib.min.js"></script>
-<script src="app.js?v=20260919a"></script>
+<script src="app.js?v=20260919b"></script>
 </body>
 </html>

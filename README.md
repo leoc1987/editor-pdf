@@ -34,6 +34,28 @@ Feito para ocultação de dados sensíveis e organização de documentos na Pol�
   (o que encostar nele entra na seleção), use <kbd>Shift</kbd>+clique para somar ou tirar trechos,
   ou <kbd>Ctrl</kbd>+<kbd>A</kbd> para marcar tudo o que foi inserido na página.
 
+## Publicações do Diário Oficial (DPCI)
+
+O botão **Publicações** localiza sozinho as matérias da Polícia Científica na edição aberta
+e gera **um arquivo por publicação**, cada um com apenas aquela publicação destacada —
+no lugar do ciclo manual de destacar, salvar, apagar o destaque, destacar a próxima e salvar de novo.
+
+- **Como encontra**: o Diário abre a seção de cada órgão com uma barra amarela (`#FFCC00`) e
+  delimita cada matéria com marcadores invisíveis (`<#ABC#…>`). Procurar a seção pela barra,
+  e não pelo texto, ignora por construção as menções a "Diretoria da Polícia Científica"
+  no corpo de publicações da SSP. Os marcadores acompanham a matéria **atravessando colunas e páginas**,
+  então uma portaria que vira a página sai inteira
+- **Nome do arquivo**: montado a partir do número da edição e do título da matéria —
+  `DOE 24867 - Portaria 060 - GAB`. Serve para qualquer tipo (`Extrato de Despacho`, etc.)
+  e **é editável** linha a linha antes de exportar
+- **Corte de páginas**: o painel sugere a primeira e a última página da seção, as duas editáveis,
+  e o botão "Excluir as demais" tira o resto do Diário de uma vez
+- **Escopo de cada arquivo**: por padrão sai só a página da publicação (as duas, se ela virar a página);
+  desmarcando a opção do rodapé, cada arquivo leva todas as páginas mantidas
+
+Se a edição do dia não tiver publicação nossa, ou se o Diário mudar de formato, o painel avisa
+e o destaque manual continua disponível.
+
 ## Como usar
 
 1. Abra o endereço acima (ou o `index.html` local — funciona offline)
