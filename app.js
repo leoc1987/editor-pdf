@@ -440,6 +440,7 @@ function syncZoomUI() {
 /* Clicar num elemento já inserido NUNCA cria outro por cima: ele fica
    selecionado, com moldura, alça para redimensionar e ✕ / Del para excluir. */
 let sels = new Set();           // índices selecionados na página aberta (pode ser vários)
+let overlayClipboard = [];      // recorte de tarjas/destaques/textos — cola noutra página na mesma posição
 let grupoSeq = 0;               // cada gesto de destaque vira um grupo, apagado de uma vez
 const MIN_RECT = 4;             // pt — tarja menor que isso some da vista
 const MIN_FONT = 5, MAX_FONT = 200;
@@ -678,11 +679,11 @@ function syncHint() {
   if (o) {
     hint.textContent = { rect: 'Tarja selecionada', mark: 'Destaque selecionado',
                          text: 'Texto selecionado (duplo clique edita)' }[o.type] +
-      ' · arraste para mover · alça ↘ redimensiona · Del exclui';
+      ' · arraste para mover · alça ↘ redimensiona · Del exclui · Ctrl+C copia';
     return;
   }
   if (sels.size) {
-    hint.textContent = `${sels.size} trechos selecionados · arraste para mover · Del exclui todos`;
+    hint.textContent = `${sels.size} trechos selecionados · arraste para mover · Del exclui todos · Ctrl+C copia`;
     return;
   }
   hint.textContent = {
@@ -692,8 +693,9 @@ function syncHint() {
       : 'Página sem texto (escaneada): arraste a caixa do destaque sobre o trecho.',
     text: 'Clique no ponto onde o texto deve entrar.'
   }[activeTool()] || (pages[cur]?.overlays.length
-    ? 'Arraste um laço sobre vários trechos para selecioná-los · Ctrl+A marca todos · Del exclui.'
-    : '');
+    ? 'Arraste um laço sobre vários trechos para selecioná-los · Ctrl+A marca todos · Del exclui'
+      + (overlayClipboard.length ? ' · Ctrl+V cola' : ' · Ctrl+C copia')
+    : (overlayClipboard.length ? 'Ctrl+V cola aqui o que foi copiado noutra página.' : ''));
 }
 
 /* ---------- gestos sobre o documento ---------- */
@@ -1354,6 +1356,37 @@ document.addEventListener('keydown', ev => {
     sels = new Set(p.overlays.map((_, k) => k));
     drawOverlay(); syncHint();
     toast(`${sels.size} trechos selecionados. Del exclui todos.`);
+    return;
+  }
+  // Ctrl/Cmd+C copia a seleção (grupo inteiro do destaque, se for o caso);
+  // Ctrl/Cmd+V cola na página aberta na MESMA posição — é assim que a mesma
+  // tarja repete noutras páginas sem redesenhar a caixa cada vez
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'c' || ev.key === 'C')) {
+    const p = pages[cur];
+    if (!p || !sels.size) return;
+    ev.preventDefault();
+    const ix = new Set();
+    for (const k of sels) for (const i of indicesDoGrupo(p, k)) ix.add(i);
+    overlayClipboard = [...ix].sort((a, b) => a - b).map(k => ({ ...p.overlays[k] }));
+    toast(overlayClipboard.length === 1 ? '1 trecho copiado.' : `${overlayClipboard.length} trechos copiados.`);
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && (ev.key === 'v' || ev.key === 'V')) {
+    const p = pages[cur];
+    if (!p || !overlayClipboard.length) return;
+    ev.preventDefault();
+    const base = p.overlays.length, remapG = new Map();
+    for (const o of overlayClipboard) {
+      const novo = { ...o };
+      if (novo.g != null) {
+        if (!remapG.has(novo.g)) remapG.set(novo.g, ++grupoSeq);
+        novo.g = remapG.get(novo.g);
+      }
+      p.overlays.push(novo);
+    }
+    sels = new Set(p.overlays.map((_, k) => k).slice(base));
+    drawOverlay(); refreshThumb(cur); syncHint();
+    toast(overlayClipboard.length === 1 ? 'Trecho colado.' : `${overlayClipboard.length} trechos colados.`);
     return;
   }
   if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
